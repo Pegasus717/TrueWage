@@ -6,7 +6,7 @@
 
 **Live demo:** https://truewage-0p3b.onrender.com/ (free host: the first load after idle can take up to a minute)
 
-TrueWage reads a delivery partner's or cab driver's earnings screenshots with AI and works out what they really kept after petrol, repairs, mobile data, vehicle EMI and unpaid waiting time. Each rider gets a private account, dashboard, history and analytics, in English, Hindi, Telugu or Tamil.
+A delivery partner or cab driver uploads their earnings screenshots. TrueWage reads them with AI, subtracts petrol, repairs, mobile data, vehicle EMI and the time spent waiting, and shows what the rider really kept. Every rider has their own account, dashboard and history, in English, Hindi, Telugu or Tamil.
 
 ![Home screen](docs/screens/06-desktop.png)
 
@@ -34,9 +34,9 @@ The numbers in these screenshots belong to a simulated demo rider and are labell
 
 ## 1. Problem and solution
 
-**Problem.** Gig apps show a headline earnings figure. It leaves out fuel, repairs, data, EMI, riding to the next pickup and time spent waiting. Riders cannot tell which hours or areas lose money, unions lack reliable data, and riders have no income proof for a lender.
+**Problem.** Gig apps show one big earnings number. It ignores fuel, repairs, data, EMI, the ride to the next pickup and the hours spent waiting. Riders cannot see which hours or areas lose money, unions have no reliable data, and a rider has nothing to show a lender as income proof.
 
-**Solution.** The rider shares earnings screenshots. TrueWage extracts every order, subtracts the real costs, and shows cash kept and real pay per hour next to the fair-wage line, with advice on when and where to work.
+**Solution.** TrueWage turns screenshots into orders, applies the rider's real costs, and shows cash kept and real pay per hour against the fair-wage line. It also suggests when and where to work.
 
 ## 2. Features
 
@@ -54,7 +54,7 @@ The numbers in these screenshots belong to a simulated demo rider and are labell
 
 ## 3. Architecture
 
-The front end is plain JavaScript with no build step and installs as a PWA. A small Python server handles login, storage and the AI calls. All data is in Supabase PostgreSQL.
+The front end is plain JavaScript with no build step and installs as a PWA. A small Python server handles login, storage and the AI calls. Data lives in Supabase PostgreSQL.
 
 ```mermaid
 flowchart LR
@@ -79,7 +79,7 @@ flowchart LR
     H --> I["Dashboard and<br/>stored analytics"]
 ```
 
-Cost controls: images are resized before upload, sent in batches, cached per image, read by the cheaper model first, capped per rider and per day, and replaced by on-device OCR when the AI is busy or over budget.
+To keep API use low, images are resized before upload and sent in batches. Each image is cached, so a repeat costs nothing. The cheaper model reads first, per-rider and per-day limits apply, and on-device OCR takes over when the AI is busy or the budget is used up.
 
 ### Data model
 
@@ -171,8 +171,6 @@ All values are optional environment variables or entries in a git-ignored `.env`
 
 ## 7. How the numbers are calculated
 
-Each rupee is counted once.
-
 ```
 gross             = pay + incentives + bonus share - platform deductions
 fuel              = (paid km + unpaid km) x petrol cost per km
@@ -256,4 +254,7 @@ docs/screens/    app screenshots
 
 ## 14. Team
 
-[Pegasus717](https://github.com/Pegasus717) and [wildwolf06](https://github.com/wildwolf06).
+| Name | GitHub |
+|---|---|
+| Raghuram | [Pegasus717](https://github.com/Pegasus717) |
+| Santosh | [wildwolf06](https://github.com/wildwolf06) |

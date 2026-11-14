@@ -9,3 +9,4 @@ tests/real/*.png
 tests/real/*.jpg
 tests/real/*.jpeg
 tests/real/*.webp
+SUBMISSION.md
