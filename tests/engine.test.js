@@ -128,3 +128,46 @@ assert(Math.abs(pr.appShown - pr.deduction - pr.fuel - pr.maint - pr.data - pr.o
 assert(Math.abs((pr.appShown - pr.deduction - pr.fuel - pr.maint - pr.data) - pr.op) < 1e-6, 'op profit = gross - fuel - maint - data');
 assert(Math.abs(pr.op - pr.fixed - pr.net) < 1e-6, 'cash = op - EMI');
 console.log('period receipt OK');
+
+// ---------- v5: calibration, accuracy range, order-check basis, Ask ----------
+const Ask = require('../js/ask.js');
+const calP = Object.assign({}, demoProfile, { fuelPerKmOverride: 1.8 });
+const calRep = TW.analyze(sessions, calP);
+assert(Math.abs(calRep.total.fuel - calRep.total.totalKm * 1.8) < 1e-6, 'calibrated fuel = km x measured cost');
+assert(calRep.total.fuel < rep.total.fuel && calRep.total.perHr > rep.total.perHr, 'cheaper measured fuel raises real pay');
+assert(Math.abs(calRep.total.net - (calRep.total.gross - calRep.total.fuel - calRep.total.maint - calRep.total.data - calRep.total.fixed)) < 1e-6, 'identity holds when calibrated');
+// accuracy range brackets the base value, is wider when uncalibrated, and measured inputs never move
+const sens = TW.sensitivity(sessions, demoProfile), sensCal = TW.sensitivity(sessions, calP);
+assert(sens.lo < sens.base.perHr && sens.hi > sens.base.perHr, 'range brackets the base');
+assert(Math.abs(sens.base.perHr - rep.total.perHr) < 1e-9, 'base equals the headline');
+assert((sensCal.hi - sensCal.lo) < (sens.hi - sens.lo), 'calibration narrows the range');
+const noCostVar = TW.sensitivity(sessions, Object.assign({}, demoProfile, { mileage: 45, deadKm: 0, maintPerKm: 0 }));
+assert(noCostVar.hi - noCostVar.lo < sens.hi - sens.lo);
+// order check can use the rider's measured EMI per online hour
+const fh = rep.total.fixed / rep.total.hours;
+const ocA = TW.orderCheck(demoProfile, { pay: 60, km: 3, avgWait: rep.avgWaitPerOrder, fixedPerHour: fh });
+const ocB = TW.orderCheck(demoProfile, { pay: 60, km: 3, avgWait: rep.avgWaitPerOrder });
+assert(Math.abs(ocA.timeCost - ocB.timeCost) < ocB.timeCost * 0.6 && ocA.timeCost !== ocB.timeCost, 'measured EMI/hour changes time cost');
+// Ask: intent detection in four languages
+const I = q => Ask.detect(q);
+assert.deepStrictEqual([I('Should I take ₹40 for 3 km?').intent, I('Should I take ₹40 for 3 km?').pay, I('Should I take ₹40 for 3 km?').km], ['order', 40, 3]);
+assert.deepStrictEqual([I('क्या मैं 3 किमी के ₹40 लूँ?').intent, I('क्या मैं 3 किमी के ₹40 लूँ?').pay, I('क्या मैं 3 किमी के ₹40 लूँ?').km], ['order', 40, 3]);
+assert.strictEqual(I('3 కి.మీ.కు ₹40 తీసుకోవాలా?').intent, 'order');
+assert.strictEqual(I('3 கி.மீ.க்கு ₹40 எடுக்கலாமா?').intent, 'order');
+assert.strictEqual(I('৩').intent, 'help');
+assert.strictEqual(I('How much did I really make?').intent, 'income');
+assert.strictEqual(I('What is my pay per hour').intent, 'hourly');
+assert.strictEqual(I('When and where should I work?').intent, 'best');
+assert.strictEqual(I('Which hours should I avoid?').intent, 'worst');
+assert.strictEqual(I('Should I go online now?').intent, 'now');
+assert.strictEqual(I('Where does my money go?').intent, 'costs');
+assert.strictEqual(I('Compare Swiggy and Zomato').intent, 'platform');
+const gq = I('I want to earn ₹1000 a day, how many hours?'); assert.deepStrictEqual([gq.intent, gq.amount], ['goal', 1000]);
+const fq = I('What if petrol gets 10% costlier?'); assert.deepStrictEqual([fq.intent, fq.pct], ['fuel', 10]);
+assert.strictEqual(I('अभी काम करूँ?').intent, 'now');
+assert.strictEqual(I('मेरी कमाई कितनी हुई?').intent, 'income');
+assert.strictEqual(I('నా సంపాదన ఎంత?').intent, 'income');
+assert.strictEqual(I('என் வருமானம் எவ்வளவு?').intent, 'income');
+assert.strictEqual(I('blah blah').intent, 'help');
+assert.strictEqual(I('').intent, 'help');
+console.log('v5 OK  range', Math.round(sens.lo), '-', Math.round(sens.hi), 'base', Math.round(sens.base.perHr), 'calibrated', Math.round(sensCal.lo), '-', Math.round(sensCal.hi));

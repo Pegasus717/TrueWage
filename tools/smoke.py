@@ -30,7 +30,7 @@ print("     Claude vision:", "ON" if json.loads(raw).get("ai") else "off (on-dev
 s, raw, h = call("GET", "/")
 check("app shell served", s == 200 and b"TrueWage" in raw)
 check("security headers", h.get("X-Content-Type-Options") == "nosniff" and h.get("X-Frame-Options") == "DENY")
-for p in ["/js/app.js", "/js/engine.js", "/css/style.css"]:
+for p in ["/js/app.js", "/js/engine.js", "/js/ask.js", "/css/style.css", "/manifest.json", "/sw.js", "/icon.svg"]:
     check("static " + p, call("GET", p)[0] == 200)
 for p in ["/server.py", "/.env", "/data/registry.json", "/tests/test_server.py", "/Dockerfile"]:
     check("not exposed " + p, call("GET", p)[0] == 404)
@@ -44,6 +44,7 @@ check("forged id rejected", call("POST", "/api/statement", {"id": "TW-0000000000
 s, raw, _ = call("GET", "/api/city")
 j = json.loads(raw)
 check("city endpoint is k-anonymous", s == 200 and j["k"] == 20 and all(c["riders"] >= 20 for c in j["cells"]))
+check("ask fails honestly without a key or bad input", call("POST", "/api/ask", {"q": "hello", "lang": "en", "summary": {}})[0] in (400, 503))
 check("extract fails honestly without a key or bad input", call("POST", "/api/extract", {"images": []})[0] in (400, 503))
 print("\n%s" % ("ALL CHECKS PASSED" if not fails else "%d CHECK(S) FAILED" % fails))
 sys.exit(1 if fails else 0)

@@ -3,7 +3,7 @@ FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1 PORT=8080 HOST=0.0.0.0 TRUEWAGE_DATA=/data
 RUN useradd --system --uid 10001 --home-dir /app truewage && mkdir -p /data /app && chown truewage /data /app
 WORKDIR /app
-COPY --chown=truewage index.html server.py ./
+COPY --chown=truewage index.html server.py manifest.json sw.js icon.svg ./
 COPY --chown=truewage css ./css
 COPY --chown=truewage js ./js
 USER truewage

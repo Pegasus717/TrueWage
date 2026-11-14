@@ -23,7 +23,8 @@
     link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
     lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
     upload: '<path d="M12 16V4M7 9l5-5 5 5M4 20h16"/>',
-    image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M21 16l-5-5-8 8"/>'
+    image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M21 16l-5-5-8 8"/>',
+    mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>'
   };
   const ic = n => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${ICON[n]}</svg>`;
 
@@ -31,15 +32,21 @@
     sessions: [], profile: T.defaultProfile('petrol'), hashes: [], reader: null, lastBatch: [], shared: false,
     rider: { name: '', phone4: '' }, lang: 'en', report: null, tab: 'home', demo: false,
     day: null, goal: 800, simHour: null, oc: null, fairTarget: null, wi: { hours: {}, days: null, fuel: 0 }, pending: null,
-    insSeg: 'advice', citySeg: 'map', advAll: false, fullCalc: false, sheet: null
+    insSeg: 'advice', citySeg: 'map', advAll: false, fullCalc: false, sheet: null, vehicleOk: false, tourDone: false, big: false
   };
-  const ui = { busy: false, msg: null, thumbs: null, open: new Set() };
+  const ui = { busy: false, msg: null, thumbs: null, open: new Set(), chat: [], ai: false, listening: false, thinking: false };
 
   /* ---------- persistence (best-effort; the app works without it) ---------- */
   const KEY = 'truewage.v3';
-  const PERSIST = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shared', 'rider', 'lang', 'demo', 'goal'];
+  const PERSIST = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shared', 'rider', 'lang', 'demo', 'goal', 'vehicleOk', 'tourDone', 'big'];
   function save() { try { const o = {}; PERSIST.forEach(k => o[k] = S[k]); localStorage.setItem(KEY, JSON.stringify(o)); } catch (e) { /* private mode */ } }
-  function load() { try { const j = JSON.parse(localStorage.getItem(KEY) || 'null'); if (j) PERSIST.forEach(k => { if (j[k] !== undefined) S[k] = j[k]; }); } catch (e) { /* ignore */ } }
+  function load() {
+    try {
+      const raw = localStorage.getItem(KEY), j = JSON.parse(raw || 'null');
+      if (j) PERSIST.forEach(k => { if (j[k] !== undefined) S[k] = j[k]; });
+      else { const nl = (navigator.language || '').slice(0, 2); if (['hi', 'te', 'ta'].includes(nl)) S.lang = nl; } // first visit: use the phone's language
+    } catch (e) { /* ignore */ }
+  }
   function toast(msg) { const el = $('#toast'); el.textContent = msg; el.hidden = false; clearTimeout(toast._t); toast._t = setTimeout(() => el.hidden = true, 4200); }
   function recompute() { S.report = S.sessions.length ? T.analyze(S.sessions, S.profile) : null; save(); }
   const dLabel = (iso, o) => new Date(iso + 'T00:00:00').toLocaleDateString(LOC[S.lang], o);
@@ -53,12 +60,12 @@
     $('#tabbar').innerHTML = NAV.map(([id, k, i]) => `<button data-tab="${id}" ${S.tab === id ? 'aria-current="page"' : ''}>${ic(i)}<span>${t(k)}</span></button>`).join('');
     $$('[data-tab]').forEach(b => b.onclick = () => setTab(b.dataset.tab));
   }
-  function applyStatic() { $$('[data-i18n]').forEach(e => e.textContent = t(e.dataset.i18n)); $('#btn-set').setAttribute('aria-label', t('set_h')); document.documentElement.lang = S.lang; }
+  function applyStatic() { $$('[data-i18n]').forEach(e => e.textContent = t(e.dataset.i18n)); $('#btn-set').setAttribute('aria-label', t('set_h')); document.documentElement.lang = S.lang; document.documentElement.classList.toggle('big', !!S.big); }
   const RENDER = { home: () => renderHome(), check: () => renderCheck(), insights: () => renderInsights(), city: () => renderCity(), proof: () => renderProof() };
   function setTab(name, noScroll) {
     S.tab = name;
     $$('.view').forEach(v => v.classList.toggle('on', v.id === 'view-' + name));
-    buildNav(); RENDER[name]();
+    buildNav(); RENDER[name](); syncFab();
     if (!noScroll) window.scrollTo({ top: 0 });
   }
   const rerender = () => setTab(S.tab, true);
@@ -69,14 +76,16 @@
     const f = (k, label, step) => `<div class="field"><label>${t(label)}</label><input type="number" inputmode="decimal" step="${step || 'any'}" min="0" data-cost="${k}" value="${p[k]}"></div>`;
     const veh = ['petrol', 'ev', 'cng', 'car'].map(v => `<option value="${v}" ${p.vehicle === v ? 'selected' : ''}>${t('v_' + v)}</option>`).join('');
     return `<div class="field"><label>${t('vehicle')}</label><select data-cost="vehicle">${veh}</select></div>` +
-      f('fixedPerDay', 'fixed', 10) + f('fuelPrice', 'fuel_price') + f('mileage', 'mileage') + f('maintPerKm', 'maint', 0.05) + f('deadKm', 'dead', 0.05) + f('dataPerHour', 'datacost', 0.5) + f('minWage', 'minwage', 5);
+      f('fixedPerDay', 'fixed', 10) + f('fuelPrice', 'fuel_price') + f('mileage', 'mileage') +
+      `<div class="field"><label>${t('cal_field')}</label><input type="number" inputmode="decimal" step="0.1" min="0" data-cost="fuelPerKmOverride" value="${p.fuelPerKmOverride || ''}" placeholder="\u2013"></div>` + + f('maintPerKm', 'maint', 0.05) + f('deadKm', 'dead', 0.05) + f('dataPerHour', 'datacost', 0.5) + f('minWage', 'minwage', 5);
   }
   function bindCosts(root) {
     $$('[data-cost]', root).forEach(inp => inp.addEventListener('change', () => {
       const k = inp.dataset.cost;
-      if (k === 'vehicle') { const d = T.defaultProfile(inp.value); S.profile = Object.assign({}, S.profile, { vehicle: inp.value, mileage: d.mileage, fuelPrice: d.fuelPrice, maintPerKm: d.maintPerKm, deadKm: d.deadKm }); $('#sheet-body') && S.sheet === 'costs' && renderSheet(); }
-      else { const v = parseFloat(inp.value); if (isFinite(v) && v >= 0 && !(k === 'mileage' && v === 0)) S.profile[k] = v; else inp.value = S.profile[k]; }
-      recompute(); resetWi();
+      if (k === 'vehicle') { const d = T.defaultProfile(inp.value); S.profile = Object.assign({}, S.profile, { vehicle: inp.value, mileage: d.mileage, fuelPrice: d.fuelPrice, maintPerKm: d.maintPerKm, deadKm: d.deadKm, fuelPerKmOverride: 0 }); S.vehicleOk = true; $('#sheet-body') && S.sheet === 'costs' && renderSheet(); }
+      else if (k === 'fuelPerKmOverride' && inp.value.trim() === '') S.profile[k] = 0;
+      else { const v = parseFloat(inp.value); if (isFinite(v) && v >= 0 && !(k === 'mileage' && v === 0)) S.profile[k] = v; else inp.value = S.profile[k] || ''; }
+      S.vehicleOk = true; recompute(); resetWi();
     }));
   }
 
@@ -146,6 +155,29 @@
     $('#l-add', v).onclick = () => openSheet('import'); $('#l-demo', v).onclick = loadDemo;
   }
 
+  const HOURS_NOW = () => (S.simHour != null ? S.simHour : new Date().getHours());
+  function nextStepHTML(rep, plan) {
+    let text, btns = '';
+    if (!S.vehicleOk) { text = t('ns_vehicle', { vehicle: t('v_' + S.profile.vehicle) }); btns = `<button class="btn sm" id="ns-yes">${t('ns_yes')}</button><button class="btn sm alt" id="ns-change">${t('change')}</button>`; }
+    else if (rep.dataQuality.level === 'low' || rep.daysWorked < 7) { text = t('ns_more'); btns = `<button class="btn sm" id="ns-add">${t('add_shots')}</button>`; }
+    else if (plan.state === 'good') { text = t('ns_now_good', { zone: plan.now.zone, platform: plan.now.platform, rate: inr(plan.now.perHr) }); btns = `<button class="btn sm alt" id="ns-spk">${ic('volume')}${t('speak')}</button>`; }
+    else if (plan.next) { text = t('ns_go', { start: plan.next.start, end: plan.next.end || 24, zone: plan.next.zone, platform: plan.next.platform, rate: inr(plan.next.perHr) }); btns = `<button class="btn sm alt" id="ns-spk">${ic('volume')}${t('speak')}</button>`; }
+    else { text = t('ns_share'); btns = `<button class="btn sm" id="ns-proof">${t('n_proof')}</button>`; }
+    return `<section class="next"><div class="eyebrow">${t('ns_h')}</div><p>${esc(text)}</p><div class="rows">${btns}</div><span hidden id="ns-text">${esc(text)}</span></section>`;
+  }
+  function accuracyHTML(rep) {
+    const sn = T.sensitivity(S.sessions, S.profile);
+    return `<details class="card acc"><summary><span>${t('acc_h')}</span><b class="num">${inr(sn.lo)}\u2013${inr(sn.hi)}/h</b></summary>
+      <p style="margin-top:10px">${esc(t('acc_range', { lo: inr(sn.lo), hi: inr(sn.hi) }))}</p>
+      <p class="note" style="margin-top:8px"><b>\u2713</b> ${t('acc_measured')}</p><p class="note" style="margin-top:4px"><b>\u2248</b> ${t('acc_assumed')}</p>
+      <button class="btn sm alt" id="acc-cal" style="margin-top:12px">${t('cal_field').replace(/\s*\(.*$/, '')}</button></details>`;
+  }
+  function tourHTML() {
+    if (!S.demo || S.tourDone) return '';
+    return `<section class="card tour"><div class="rows between"><h3 class="h3">${t('tour_h')}</h3><button class="link" id="tour-x">${t('got_it')}</button></div>
+      <ol><li><button data-tour="listen">${t('tour_1')}</button></li><li><button data-tour="ask">${t('tour_2')}</button></li><li><button data-tour="wi">${t('tour_3')}</button></li><li><button data-tour="proof">${t('tour_4')}</button></li></ol></section>`;
+  }
+
   function renderHome() {
     const v = $('#view-home'), rep = S.report;
     if (!rep) return renderLanding(v);
@@ -154,7 +186,7 @@
     const r = sel === 'typical' ? T.dayReceipt(rep, null) : T.dayReceipt(rep, sel);
     const label = sel === 'period' ? t('period_all') : sel === 'typical' ? t('avg_day') : dLabel(sel, { weekday: 'short', day: 'numeric', month: 'short' });
     const range = rep.daysWorked === 1 ? dLabel(rep.dates[0], { weekday: 'short', day: 'numeric', month: 'short' }) : `${dLabel(rep.dates[0], { day: 'numeric', month: 'short' })} – ${dLabel(rep.dates[rep.dates.length - 1], { day: 'numeric', month: 'short' })} · ${rep.daysWorked} ${t('days')}`;
-    const plan = T.planNow(rep, S.simHour != null ? S.simHour : new Date().getHours());
+    const plan = T.planNow(rep, HOURS_NOW());
     const advice = rep.insights.filter(i => ['skip', 'best', 'platform', 'breakeven', 'whatif', 'deadkm', 'waitimpact', 'lowdata'].includes(i.key)).slice(0, 2).map(i => ({ i, txt: adviceText(i) }));
     const keptPct = r.appShown > 0 ? Math.max(0, Math.min(100, rd(r.net / r.appShown * 100))) : 0;
     const p = S.profile, vlabel = t('v_' + p.vehicle);
@@ -168,8 +200,11 @@
             <p class="kept-sum">${esc(t('h_sum', { app: inr(r.appShown), kept: inr(r.net), real: inr(r.perHr), appHr: inr(r.appPerHr) }))}</p>
             <div class="kbar" aria-hidden="true"><i style="width:${keptPct}%"></i></div>
             <div class="kbar-l"><span>${esc(t('kept_pct', { p: keptPct }))}</span><span>${Math.round(r.hours * 10) / 10} ${t('hours')} · ${rd(r.orders)} ${t('orders_n')}</span></div></section>
+          ${nextStepHTML(rep, plan)}
           <div class="acts"><button class="btn lg" id="a-check">${t('n_check')}</button><button class="btn lg alt" id="a-add">${t('add_shots')}</button></div>
+          ${tourHTML()}
           <div class="rows"><button class="btn sm alt" id="share">${ic('share')}${t('share_btn')}</button><button class="btn sm alt" id="spk-day">${ic('volume')}${t('speak')}</button></div>
+          ${accuracyHTML(rep)}
           <div class="assume"><span>${t('assume_h')}: <b>${esc(vlabel)}</b> · ${inr(p.fuelPrice)} · ${p.mileage} km · EMI ${inr(p.fixedPerDay)}/${t('days').replace(/s$/, '')}</span><button class="link" id="a-costs">${t('change')}</button></div>
         </div>
         <div class="stack">
@@ -185,6 +220,17 @@
     $('#share', v).onclick = () => shareReceipt(r, label);
     $('#spk-day', v).onclick = () => speak([t('h_sum', { app: inr(r.appShown), kept: inr(r.net), real: inr(r.perHr), appHr: inr(r.appPerHr) })].concat(advice.map(a => a.txt)));
     const more = $('#to-ins', v); if (more) more.onclick = () => { S.insSeg = 'advice'; setTab('insights'); };
+    const on = (id, fn) => { const el = $(id, v); if (el) el.onclick = fn; };
+    on('#ns-yes', () => { S.vehicleOk = true; save(); renderHome(); }); on('#ns-change', () => openSheet('costs')); on('#ns-add', () => openSheet('import'));
+    on('#ns-spk', () => speak([$('#ns-text', v).textContent])); on('#ns-proof', () => setTab('proof')); on('#acc-cal', () => openSheet('costs'));
+    on('#tour-x', () => { S.tourDone = true; save(); renderHome(); });
+    $$('[data-tour]', v).forEach(b => b.onclick = () => {
+      const k = b.dataset.tour;
+      if (k === 'listen') speak([t('h_sum', { app: inr(r.appShown), kept: inr(r.net), real: inr(r.perHr), appHr: inr(r.appPerHr) })]);
+      else if (k === 'ask') { openSheet('ask'); sendAsk(t('ask_q3')); }
+      else if (k === 'wi') { S.insSeg = 'wi'; setTab('insights'); }
+      else setTab('proof');
+    });
     bindSpeak(v, advice);
     const sim = $('#sim', v); if (sim) sim.onchange = () => { S.simHour = sim.value === '' ? null : +sim.value; renderHome(); };
   }
@@ -389,7 +435,7 @@
     const rep = S.report, mw = S.profile.minWage, out = $('#oc-out');
     if (!out) return;
     if (!(S.oc.km > 0)) { out.innerHTML = ''; return; }
-    const r = T.orderCheck(S.profile, { pay: S.oc.pay, km: S.oc.km, avgWait: rep ? rep.avgWaitPerOrder : 6 });
+    const r = T.orderCheck(S.profile, { pay: S.oc.pay, km: S.oc.km, avgWait: rep ? rep.avgWaitPerOrder : 6, fixedPerHour: rep && rep.total.hours > 0 ? rep.total.fixed / rep.total.hours : undefined });
     const msg = r.verdict === 'take' ? t('oc_msg_take', { net: rd(r.net), min: rd(r.effMin), hr: rd(r.perHr) }) : t('oc_msg_skip', { net: rd(r.net), hr: rd(r.perHr) });
     const pos = Math.max(2, Math.min(98, r.perHr / (mw * 2) * 100));
     out.innerHTML = `<div class="verdict ${r.verdict}" role="status" aria-live="polite">
@@ -575,16 +621,98 @@
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'truewage-receipt.png'; a.click(); toast('Receipt image saved');
   }
 
+  /* ---------- ASK TRUEWAGE: voice or text question -> answer from the rider's own numbers ---------- */
+  function askSummary() {
+    const rep = S.report, r = T.dayReceipt(rep, 'period'), plan = T.planNow(rep, HOURS_NOW()), p = S.profile, R0 = n => Math.round(n);
+    const solid = rep.combos.filter(c => c.days >= 3 && c.hours >= 4), maxH = Math.max(0, ...solid.map(c => c.hours));
+    const win = solid.filter(c => c.hours >= 0.4 * maxH).sort((a, b) => b.perHr - a.perHr).map(c => ({ platform: c.platform, area: c.zone, time: c.daypart, realPerHour: R0(c.perHr), hours: R0(c.hours) }));
+    return {
+      currency: 'INR', simulatedDemoData: !!S.demo, dataQuality: rep.dataQuality.level, period: { from: rep.dates[0], to: rep.dates[rep.dates.length - 1], daysWorked: rep.daysWorked },
+      totals: { appsShowed: R0(r.appShown), cashKept: R0(r.net), realPerHour: R0(r.perHr), appImpliedPerHour: R0(r.appPerHr), onlineHours: R0(r.hours), orders: r.orders },
+      costs: { platformCuts: R0(r.deduction), fuel: R0(r.fuel), repairs: R0(r.maint), phoneData: R0(r.data), bikeEmi: R0(r.fixed), profitBeforeEmi: R0(r.op), unpaidRidingCost: R0(r.deadCost) },
+      bestWindows: win.slice(0, 3), worstWindows: win.slice(-2).reverse(), platforms: rep.byPlatform.map(x => ({ name: x.key, realPerHour: R0(x.perHr) })),
+      nowHour: plan.hour, nowState: plan.state, nextGoodWindow: plan.next ? { from: plan.next.start, to: plan.next.end || 24, area: plan.next.zone, platform: plan.next.platform, realPerHour: R0(plan.next.perHr) } : null,
+      fairWagePerHour: p.minWage, assumptions: { vehicle: p.vehicle, fuelPricePerUnit: p.fuelPrice, kmPerUnit: p.mileage, emiPerDay: p.fixedPerDay, unpaidKmFactor: p.deadKm }
+    };
+  }
+  function offlineAnswer(det) {
+    const rep = S.report;
+    if (det.intent === 'order') {
+      const r = T.orderCheck(S.profile, { pay: det.pay, km: det.km, avgWait: rep ? rep.avgWaitPerOrder : 6, fixedPerHour: rep && rep.total.hours > 0 ? rep.total.fixed / rep.total.hours : undefined });
+      const msg = r.verdict === 'take' ? t('oc_msg_take', { net: rd(r.net), min: rd(r.effMin), hr: rd(r.perHr) }) : t('oc_msg_skip', { net: rd(r.net), hr: rd(r.perHr) });
+      return `${inr(det.pay)} \u00B7 ${det.km} km: ${t('oc_' + r.verdict)}. ${msg}${r.verdict !== 'take' ? ' ' + t('oc_need', { mw: S.profile.minWage, need: rd(r.need) }) : ''}`;
+    }
+    if (!rep) return t('ask_nodata');
+    const find = key => rep.insights.find(i => i.key === key);
+    const plan = T.planNow(rep, HOURS_NOW()), r = T.dayReceipt(rep, 'period');
+    switch (det.intent) {
+      case 'income': case 'hourly': return t('h_sum', { app: inr(r.appShown), kept: inr(r.net), real: inr(r.perHr), appHr: inr(r.appPerHr) });
+      case 'best': { const b = find('best'); if (!b) return t('ask_none'); let out = adviceText(b); if (plan.state !== 'good' && plan.next) out += ' ' + t('ns_go', { start: plan.next.start, end: plan.next.end || 24, zone: plan.next.zone, platform: plan.next.platform, rate: inr(plan.next.perHr) }); return out; }
+      case 'worst': { const w = rep.insights.filter(i => i.key === 'skip'); return w.length ? w.map(adviceText).join(' ') : t('ask_none'); }
+      case 'now':
+        if (plan.state === 'good') return t('plan_good', { rate: rd(plan.now.perHr), zone: plan.now.zone, platform: plan.now.platform });
+        if (plan.state === 'poor' && plan.next) return t('plan_poor', { rate: rd(plan.now.perHr), start: plan.next.start, end: plan.next.end || 24, zone: plan.next.zone, platform: plan.next.platform, rate2: rd(plan.next.perHr) });
+        return plan.next ? t('ns_go', { start: plan.next.start, end: plan.next.end || 24, zone: plan.next.zone, platform: plan.next.platform, rate: inr(plan.next.perHr) }) : t('plan_nodata');
+      case 'costs': { const e = find('expense'); return e ? adviceText(e) : t('ask_none'); }
+      case 'platform': { const pl = find('platform'); return pl ? adviceText(pl) : t('ask_none'); }
+      case 'goal': {
+        const goal = det.amount || S.goal, good = plan.best.filter(b => b && b.perHr >= S.profile.minWage).map(b => b.perHr), best = good.length ? good.reduce((a, b) => a + b, 0) / good.length : 0;
+        if (!(rep.total.perHr > 0) || !best) return t('ask_none');
+        return t('goal_text', { goal: goal.toLocaleString('en-IN'), h1: Math.round(goal / rep.total.perHr * 10) / 10, h2: Math.round(goal / best * 10) / 10 });
+      }
+      case 'fuel': { const pct = det.pct || 10, a = T.simulate(rep, {}), b = T.simulate(rep, { fuelPct: pct }); return t('ask_fuel', { p: pct, x: inr(a.cashMonth - b.cashMonth), cash: inr(b.cashMonth), base: inr(a.cashMonth) }); }
+      default: return t('ask_help');
+    }
+  }
+  async function sendAsk(q) {
+    q = String(q || '').trim().slice(0, 300); if (!q || ui.thinking) return;
+    ui.chat.push({ me: true, text: q }); ui.thinking = true; if (S.sheet === 'ask') renderSheet();
+    const det = TWAsk.detect(q); let text = null, src = 'off', note = null;
+    if (ui.ai && S.report && det.intent !== 'order') {
+      try {
+        const res = await fetch('api/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ q, lang: S.lang, summary: askSummary() }) });
+        if (res.ok) { text = (await res.json()).answer; src = 'ai'; } else note = t('ask_unavail');
+      } catch (e) { note = t('ask_unavail'); }
+    }
+    if (text === null) text = offlineAnswer(det);
+    ui.chat.push({ me: false, text, src, note, intent: det.intent }); ui.thinking = false;
+    if (S.sheet === 'ask') renderSheet();
+  }
+  function micStart() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { toast(t('mic_denied')); return; }
+    try {
+      const rec = new SR(); rec.lang = I18N.voice(); rec.interimResults = false; rec.maxAlternatives = 1; ui.listening = true; renderSheet();
+      rec.onresult = e => { const q = e.results[0][0].transcript; ui.listening = false; sendAsk(q); };
+      rec.onerror = () => { ui.listening = false; toast(t('mic_denied')); renderSheet(); }; rec.onend = () => { if (ui.listening) { ui.listening = false; renderSheet(); } };
+      rec.start();
+    } catch (e) { ui.listening = false; toast(t('mic_denied')); renderSheet(); }
+  }
+  function askSheet(b) {
+    const qs = ['ask_q1', 'ask_q2', 'ask_q3', 'ask_q4', 'ask_q5'];
+    const msgs = ui.chat.map((m, i) => m.me ? `<div class="bub me">${esc(m.text)}</div>` : `<div class="bub"><p>${esc(m.text)}</p>${m.note ? `<div class="note">${esc(m.note)}</div>` : ''}<div class="rows between"><span class="note">${t(m.src === 'ai' ? 'ask_src_ai' : 'ask_src_off')}</span><button class="ibtn" data-aspk="${i}" aria-label="${t('speak')}">${ic('volume')}</button></div></div>`).join('');
+    b.innerHTML = `<div class="chat" id="chat">${msgs || `<p class="muted">${t(S.report ? 'ask_help' : 'ask_nodata')}</p>`}${ui.thinking ? '<div class="bub"><div class="spin"></div></div>' : ''}</div>
+      <div class="eyebrow" style="margin-top:12px">${t('ask_try')}</div><div class="chips">${qs.map(k => `<button data-q="${k}">${t(k)}</button>`).join('')}</div>
+      <form class="askbar" id="askform"><input id="ask-in" maxlength="300" autocomplete="off" placeholder="${esc(ui.listening ? t('ask_listening') : t('ask_ph'))}" aria-label="${t('ask_ph')}">
+        <button type="button" class="ibtn mic ${ui.listening ? 'on' : ''}" id="ask-mic" aria-label="${t('ask_mic')}">${ic('mic')}</button><button class="btn" id="ask-go">${t('ask_send')}</button></form>`;
+    $$('[data-q]', b).forEach(c => c.onclick = () => sendAsk(t(c.dataset.q)));
+    $$('[data-aspk]', b).forEach(c => c.onclick = () => speak([ui.chat[+c.dataset.aspk].text]));
+    $('#askform', b).onsubmit = e => { e.preventDefault(); const i = $('#ask-in', b); const q = i.value; i.value = ''; sendAsk(q); };
+    $('#ask-mic', b).onclick = micStart;
+    const chat = $('#chat', b); chat.scrollTop = chat.scrollHeight; const last = $('.bub:last-child', chat); if (last && last.scrollIntoView) last.scrollIntoView({ block: 'nearest' });
+  }
+
   /* ---------- sheet: add screenshots (pick -> auto-read -> confirm), costs, data ---------- */
-  function openSheet(kind) { S.sheet = kind || 'import'; $('#sheet').hidden = false; document.body.style.overflow = 'hidden'; renderSheet(); $('#sheet-x').focus(); }
-  function closeSheet() { const was = S.sheet; S.sheet = null; $('#sheet').hidden = true; document.body.style.overflow = ''; if (was === 'costs' || was === 'data') rerender(); }
+  function openSheet(kind) { S.sheet = kind || 'import'; $('#sheet').hidden = false; document.body.style.overflow = 'hidden'; renderSheet(); syncFab(); if (S.sheet !== 'ask') $('#sheet-x').focus(); }
+  function closeSheet() { const was = S.sheet; S.sheet = null; $('#sheet').hidden = true; document.body.style.overflow = ''; if ('speechSynthesis' in window) speechSynthesis.cancel(); if (was === 'costs' || was === 'data') rerender(); syncFab(); }
+  const syncFab = () => { const f = $('#fab'); if (f) f.hidden = !S.report || !!S.sheet; };
   function renderSheet() {
     const b = $('#sheet-body');
-    $('#sheet-t').textContent = S.sheet === 'costs' ? t('costs_h') : S.sheet === 'data' ? t('set_h') : t('add_shots');
-    if (S.sheet === 'costs') costsSheet(b); else if (S.sheet === 'data') dataSheet(b); else importSheet(b);
+    $('#sheet-t').textContent = S.sheet === 'costs' ? t('costs_h') : S.sheet === 'data' ? t('set_h') : S.sheet === 'ask' ? t('ask_h') : t('add_shots');
+    if (S.sheet === 'costs') costsSheet(b); else if (S.sheet === 'data') dataSheet(b); else if (S.sheet === 'ask') askSheet(b); else importSheet(b);
   }
   function costsSheet(b) {
-    b.innerHTML = `<div class="grid2">${costsHTML()}</div><div class="center"><button class="btn lg" id="c-done">${t('done')}</button></div>`;
+    b.innerHTML = `<div class="grid2">${costsHTML()}</div><p class="note" style="margin-top:10px">${t('cal_help')}</p><div class="center"><button class="btn lg" id="c-done">${t('done')}</button></div>`;
     bindCosts(b); $('#c-done', b).onclick = closeSheet;
   }
   function dataSheet(b) {
@@ -593,9 +721,12 @@
       <div class="menu"><button class="btn alt block" id="d-costs">${t('costs_h')}</button>
         <button class="btn alt block" id="d-exp" ${S.sessions.length ? '' : 'disabled'}>${ic('download')}${t('data_export')}</button>
         <button class="btn alt block" id="d-imp">${ic('upload')}${t('data_import')}</button>
-        <button class="btn alt block" id="d-del" ${S.sessions.length ? '' : 'disabled'}>${t('data_delete')}</button></div>
+        <button class="btn alt block" id="d-del" ${S.sessions.length ? '' : 'disabled'}>${t('data_delete')}</button>
+        <button class="btn alt block" id="d-big" aria-pressed="${!!S.big}">${t('big_text')}: ${S.big ? 'ON' : 'OFF'}</button></div>
+      <h3 class="h3" style="margin-top:18px">${t('install_h')}</h3><p class="note">${t('install_p')}</p>
       <p class="note" style="margin-top:16px">${t('pdf_disclaimer')}</p>`;
     $('#d-costs', b).onclick = () => openSheet('costs'); $('#d-exp', b).onclick = exportData; $('#d-imp', b).onclick = () => $('#backup-file').click(); $('#d-del', b).onclick = deleteAll;
+    $('#d-big', b).onclick = () => { S.big = !S.big; save(); applyStatic(); renderSheet(); };
   }
   function importSheet(b) {
     if (S.pending) return reviewSheet(b);
@@ -783,11 +914,13 @@
     $('#backup-file').onchange = e => { if (e.target.files[0]) importBackup(e.target.files[0]); e.target.value = ''; };
     applyStatic();
     if (S.sessions.length) recompute();
-    R.aiAvailable().then(ai => { $('#foot-mode').textContent = ai ? 'AI reader: Claude vision' : 'AI reader: on-device OCR'; });
+    R.aiAvailable().then(ai => { ui.ai = !!ai; $('#foot-mode').textContent = ai ? 'AI: Claude vision + Ask' : 'AI reader: on-device OCR \u00B7 Ask answers on-device'; });
+    $('#fab').onclick = () => openSheet('ask'); syncFab();
+    if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) navigator.serviceWorker.register('/sw.js').catch(() => { /* offline mode is optional */ });
     if ('speechSynthesis' in window) speechSynthesis.getVoices();
     window.addEventListener('hashchange', () => { if (location.hash.startsWith('#verify=')) setTab('proof'); });
     setTab(location.hash.startsWith('#verify=') ? 'proof' : 'home');
-    window.TWApp = { S, loadDemo, setTab, openSheet, closeSheet, handleFiles, trySamples };
+    window.TWApp = { S, ui, loadDemo, setTab, openSheet, closeSheet, handleFiles, trySamples, sendAsk, offlineAnswer, askSummary };
   }
   init();
 })();

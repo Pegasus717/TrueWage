@@ -6,6 +6,9 @@
 <meta name="theme-color" content="#F7F5EF">
 <title>TrueWage – What a gig worker really earns</title>
 <meta name="description" content="Upload earnings screenshots. TrueWage reads every order, subtracts petrol, repairs and data, and shows a gig worker's true hourly pay — with advice in their own language, an order checker, city-wide pay data for unions, and a verifiable income statement for banks.">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icon.svg">
+<meta name="mobile-web-app-capable" content="yes">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2316140F'/%3E%3Crect x='6' y='9' width='20' height='4' rx='1' fill='%23F4D03F'/%3E%3Crect x='6' y='19' width='11' height='4' rx='1' fill='%235FD0A0'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Public+Sans:wght@400;500;600;700&family=Noto+Sans+Devanagari:wght@400;600&family=Noto+Sans+Telugu:wght@400;600&family=Noto+Sans+Tamil:wght@400;600&display=swap">
@@ -34,6 +37,8 @@
 </main>
 <div class="foot"><span id="foot-mode"></span> · TrueWage v2 · screenshots stay on your device unless you use the server AI reader</div>
 
+<button class="fab" id="fab" hidden aria-label="Ask TrueWage"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><span data-i18n="ask_send">Ask</span></button>
+
 <nav class="tabbar" id="tabbar" aria-label="Main"></nav>
 
 <!-- Sheet (add screenshots / costs / settings), rendered by app.js -->
@@ -53,6 +58,7 @@
 <script src="js/demo.js"></script>
 <script src="js/i18n.js"></script>
 <script src="js/reader.js"></script>
+<script src="js/ask.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

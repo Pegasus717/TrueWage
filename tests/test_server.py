@@ -56,6 +56,13 @@ class T(unittest.TestCase):
         s, j, _ = self.req("POST", "/api/extract", {"images": []})
         self.assertEqual(s, 503)
 
+    def test_ask_without_key_is_honest(self):
+        self.assertEqual(self.req("POST", "/api/ask", {"q": "hello", "lang": "en", "summary": {}})[0], 503)
+
+    def test_pwa_files_served(self):
+        for p in ["/manifest.json", "/sw.js", "/icon.svg"]:
+            self.assertEqual(self.req("GET", p)[0], 200, p)
+
     def test_image_validation(self):
         png = "data:image/png;base64," + base64.b64encode(tiny_png()).decode()
         self.assertEqual(len(server.clean_images([png])), 1)

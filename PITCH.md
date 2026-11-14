@@ -16,10 +16,15 @@ Demo rider (synthetic, labelled as such): apps showed ₹35,235 over 24 days; af
 1. **0:00** Landing. "The apps showed ₹35,235. What did Ravi actually make?" Switch to తెలుగు to show the page change language.
 2. **0:20** **Add screenshots → Try sample screenshots.** Real OCR reads three generated test screenshots; the review table appears. Fix a misread bonus, show the red validation on a bad value, **Save**. Run the samples again: "already imported, skipped".
 3. **1:00** **See a demo rider.** Cash in hand ₹20,365 and the ledger. Tap a single day. Point at the unpaid-riding note and profit before EMI.
-4. **1:25** **Right now** card (set the dropdown to 13:00): slow window, next good one 17:00 to 23:00. Press the speaker on an advice row in Telugu.
-5. **1:50** **Insights → What-if.** *Drop weakest windows*: monthly cash falls ₹2,799, real pay per hour rises ₹81 to ₹107 and 3.5 hours a day come back. Fuel +20% costs ₹3,896 a month. Then the **Check order** tab: ₹32 / 4.5 km is *Skip it*; ₹80 / 2 km is *Take it*.
+4. **1:25** Open **Ask** (the floating button): tap *Should I take ₹40 for 3 km?* — or hold the mic and say it in Hindi, Telugu or Tamil. The answer comes from the rider's own numbers (Claude when a key is set, on-device rules otherwise, and it says which). Then the **Right now** card (set the dropdown to 13:00): slow window, next good one 17:00 to 23:00. Press the speaker on an advice row in Telugu.
+5. **1:50** **Insights → What-if.** *Drop weakest windows*: monthly cash falls ₹2,799, real pay per hour rises ₹81 to ₹107 and 3.5 hours a day come back. Fuel +20% alone costs ₹1,399 a month. Then the **Check order** tab: ₹32 / 4.5 km is *Skip it*; ₹80 / 2 km is *Take it*.
 6. **2:20** **City** (labelled simulated): heatmap, "You ₹18/h vs city ₹56/h", locked cells under 20 riders, fair-pay floor.
 7. **2:40** **Proof**: create statement, evidence table (self-reported yes, platform/bank certified no), open the verify link ✔, edit a number ✖.
+
+## What makes it different
+* **Honest accuracy:** the headline number comes with a range (e.g. ₹65–₹95/h) that shrinks when the rider calibrates their real petrol cost per km.
+* **AI where it helps, maths where it must be exact:** Claude reads screenshots and explains in the rider's language; order checks and what-ifs are computed by the engine, never guessed by a model.
+* **Zero-effort UX:** opens in the phone's language, voice questions, one *Next best step* card, installable like an app, larger-text mode.
 
 ## Why it matters
 * **Real problem:** a hidden wage gap for lakhs of workers; no salary slip for credit; no honest data for bargaining.

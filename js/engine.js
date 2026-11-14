@@ -28,11 +28,13 @@
       mileage: v.mileage, fuelPrice: v.fuelPrice, maintPerKm: v.maintPerKm, deadKm: v.deadKm,
       dataPerHour: 2.5,   // Rs per online hour (mobile data + battery/phone wear)
       fixedPerDay: 0,     // EMI / rent / insurance per day
-      minWage: 90         // fair-wage benchmark, Rs/hour (illustrative, editable)
+      minWage: 90,        // fair-wage benchmark, Rs/hour (illustrative, editable)
+      fuelPerKmOverride: 0 // optional: the rider's own measured fuel cost per km (Rs). 0 = derive from mileage and price
     };
   }
 
   const sum = (a, f) => a.reduce((s, x) => s + f(x), 0);
+  const fuelKm = p => (p.fuelPerKmOverride > 0 ? p.fuelPerKmOverride : p.fuelPrice / p.mileage);
   const round = (n, d = 0) => { const m = Math.pow(10, d); return Math.round(n * m) / m; };
 
   /** Flatten sessions into orders, filling idle (unpaid waiting) time, and attach cost fields.
@@ -45,7 +47,7 @@
    *  operating profit = gross - fuel - maint - data ; cash after EMI = operating profit - EMI. */
   function enrich(sessions, profile) {
     const p = Object.assign(defaultProfile(), profile || {});
-    const fuelPerKm = p.fuelPrice / p.mileage;
+    const fuelPerKm = fuelKm(p);
     const vehicleKm = fuelPerKm + p.maintPerKm;
     const out = [];
     sessions.forEach((s, si) => {
@@ -169,7 +171,7 @@
     const solidZD = zoneDaypart.filter(solid);
 
     // breakeven pay per paid km: what an order must pay just to cover fuel+repairs (incl. unpaid riding)
-    const vehicleKm = p.fuelPrice / p.mileage + p.maintPerKm;
+    const vehicleKm = fuelKm(p) + p.maintPerKm;
     const breakEvenPerKm = vehicleKm * (1 + p.deadKm);
     const belowBE = orders.filter(o => o.km > 0 && (o.pay + o.incentive - o.deduction) / o.km < breakEvenPerKm);
     const belowBEPct = orders.length ? belowBE.length / orders.length * 100 : 0;
@@ -277,8 +279,10 @@
     const km = Math.max(0.1, +o.km || 0), pay = +o.pay || 0;
     const rideMin = +o.mins || (10 + km * 3.4);
     const effMin = rideMin + (+o.avgWait || 0);               // include the unpaid waiting an order usually costs
-    const vehicleKm = p.fuelPrice / p.mileage + p.maintPerKm;
-    const vehicleCost = km * (1 + p.deadKm) * vehicleKm, timeCost = effMin / 60 * (p.dataPerHour + p.fixedPerDay / 9);
+    const vehicleKm = fuelKm(p) + p.maintPerKm;
+    // EMI per online hour: measured from the rider's own history when available, else an even 9-hour day
+    const fixedHr = o.fixedPerHour != null ? o.fixedPerHour : p.fixedPerDay / 9;
+    const vehicleCost = km * (1 + p.deadKm) * vehicleKm, timeCost = effMin / 60 * (p.dataPerHour + fixedHr);
     const cost = vehicleCost + timeCost;
     const net = pay - cost, perHr = net / (effMin / 60);
     const need = cost + p.minWage * effMin / 60;               // pay needed to reach the fair-wage line
@@ -341,6 +345,24 @@
     };
   }
 
+  /** How far could the real hourly pay move if our cost assumptions are off?
+   *  Pessimistic: worse mileage, more unpaid riding, dearer repairs. Optimistic: the reverse.
+   *  Measured values (pay, km, times, bonuses, cuts, EMI) never vary. If the rider calibrated petrol cost, fuel varies only +/-10%. */
+  function sensitivity(sessions, profile) {
+    const p = Object.assign(defaultProfile(), profile || {});
+    const calibrated = p.fuelPerKmOverride > 0;
+    const run = (fuelK, deadK, maintK) => {
+      const q = Object.assign({}, p, { deadKm: Math.max(0, p.deadKm * deadK), maintPerKm: p.maintPerKm * maintK });
+      if (calibrated) q.fuelPerKmOverride = p.fuelPerKmOverride * fuelK; else q.mileage = p.mileage / fuelK;
+      const a = aggregate(enrich(sessions, q));
+      return { perHr: a.perHr, cash: a.net };
+    };
+    const base = run(1, 1, 1);
+    const fk = calibrated ? 0.1 : 0.2;
+    const lo = run(1 + fk, 1.45, 1.3), hi = run(1 - fk, 0.55, 0.7);
+    return { base, lo: Math.min(lo.perHr, base.perHr), hi: Math.max(hi.perHr, base.perHr), loCash: Math.min(lo.cash, base.cash), hiCash: Math.max(hi.cash, base.cash), calibrated };
+  }
+
   /** Historical working windows (platform x zone x time of day) with their per-hour economics. */
   function simWindows(rep) {
     return rep.combos.filter(c => c.hours > 0).map(c => ({
@@ -368,6 +390,6 @@
       perHr: hoursMonth > 0 ? cashMonth / hoursMonth : 0, opPerHr: hrs > 0 ? opDay / hrs : 0 };
   }
 
-  const API = { simulate, simWindows, orderCheck, planNow, fairFloor, dayReceipt, VEHICLES, DAYPARTS, DAYPART_HOURS, daypartOf, defaultProfile, enrich, aggregate, analyze, statementData, median, round };
+  const API = { sensitivity, fuelKm, simulate, simWindows, orderCheck, planNow, fairFloor, dayReceipt, VEHICLES, DAYPARTS, DAYPART_HOURS, daypartOf, defaultProfile, enrich, aggregate, analyze, statementData, median, round };
   if (typeof module !== 'undefined' && module.exports) module.exports = API; else root.TW = Object.assign(root.TW || {}, API);
 })(typeof window !== 'undefined' ? window : globalThis);
