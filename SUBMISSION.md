@@ -40,8 +40,11 @@ Hackathons, Social Impact, Gig Economy, FinTech, AI, Computer Vision, Income Tra
 4. Everything is stored per rider in the database (data, history, analytics, imports, statements), with login, private dashboards and CSV export. Anonymous city analytics appear only when 20 or more riders contributed.
 
 ## How we used Vultr
-> **Fill this in once the Vultr server is running; do not submit this section until it is true.**
-The application server runs on a Vultr Cloud Compute instance (Ubuntu, Docker Compose, HTTPS via Caddy), using the repo's `Dockerfile`, `docker-compose.yml` and `deploy/VULTR.md`. The database is Supabase PostgreSQL and AI calls go to the Claude API from the server, so keys never reach the browser. Server URL: `<your Vultr URL>`.
+> **Use ONE of the two versions below and delete the other. Do not claim a running Vultr server unless it is true.**
+
+**Version A: if you get Vultr credits and deploy (preferred):** The application server runs on a Vultr Cloud Compute instance in Mumbai (Ubuntu 24.04, Docker Compose, Caddy for HTTPS), using the repo's `Dockerfile`, `docker-compose.yml` and `deploy/VULTR.md`. The database is Supabase PostgreSQL and AI calls go to the Claude API from the server, so keys never reach the browser. Server URL: `<your Vultr URL>`.
+
+**Version B: if you cannot fund a Vultr account (honest wording):** TrueWage is packaged to run on Vultr Cloud Compute: a `Dockerfile`, a `docker-compose.yml` with automatic HTTPS (Caddy), a systemd unit and a step-by-step guide (`deploy/VULTR.md`) for a $5/month Ubuntu server in Mumbai or Bangalore. We configured a Vultr instance (1 vCPU, 1 GB, Ubuntu 24.04, Mumbai) but could not start it because we had no account credit, so the live demo runs on Render. The same container and environment variables run unchanged on Vultr.
 
 ## Team
 * Pegasus717 (GitHub): <your full name and role>
