@@ -19,13 +19,14 @@ def tiny_png():
 class T(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        cls.saved_key = server.API_KEY; server.API_KEY = ""   # these tests must never reach the real API, whatever .env holds
         cls.srv = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
         cls.port = cls.srv.server_address[1]
         threading.Thread(target=cls.srv.serve_forever, daemon=True).start()
 
     @classmethod
     def tearDownClass(cls):
-        cls.srv.shutdown()
+        cls.srv.shutdown(); server.API_KEY = cls.saved_key
 
     def req(self, method, path, body=None, ctype="application/json"):
         c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)

@@ -48,7 +48,7 @@ check("forged id rejected", call("POST", "/api/statement", {"id": "TW-0000000000
 s, raw, _ = call("GET", "/api/city")
 j = json.loads(raw)
 check("city endpoint is k-anonymous", s == 200 and j["k"] == 20 and all(c["riders"] >= 20 for c in j["cells"]))
-check("ask fails honestly without a key or bad input", call("POST", "/api/ask", {"q": "hello", "lang": "en", "summary": {}})[0] in (400, 503))
+check("ask rejects bad input (without spending API calls)", call("POST", "/api/ask", {"q": "x", "lang": "en", "summary": {}})[0] in (400, 503))
 check("extract fails honestly without a key or bad input", call("POST", "/api/extract", {"images": []})[0] in (400, 503))
 
 # ---- accounts: register -> private data -> logout -> login -> delete (leaves nothing behind) ----
