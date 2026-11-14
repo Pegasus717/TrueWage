@@ -1,43 +1,53 @@
-# TrueWage: submission kit
+# TrueWage: submission playbook
 
-## One-liner
-Platforms show what you earned. TrueWage shows what you actually made.
+> Platforms show what you earned. TrueWage shows what you actually made.
 
-## Submission description
-Lakhs of delivery partners and cab drivers see a headline earnings number that ignores petrol, repairs, mobile data, the bike EMI, unpaid riding and hours spent waiting. TrueWage turns screenshots of that earnings screen into **cash in hand** and **real pay per hour**.
+No one can guarantee a win. What follows is what we can control: a problem judges feel in seconds, a demo that cannot fail, claims that survive questioning, and a finished, honest product. The structure follows widely repeated judging patterns (clear problem, working demo, technical credibility, impact, honesty about limits); it is not a study of specific past winners.
 
-The rider uploads screenshots (Claude vision when configured, on-device OCR otherwise), reviews and corrects what was read, and saves. Duplicate screenshots are caught. A ledger then walks from the app's total through cuts, fuel, repairs, data, profit before EMI and the EMI to cash remaining. Advice comes from the rider's own data only, in English, Hindi, Telugu or Tamil with voice, and the app refuses to invent patterns when data is thin. An order checker says take or skip in two seconds, and a what-if simulator shows how hours, areas, platforms and fuel price change monthly cash.
+## 1. The 90-second pitch (say it in this order)
+1. **Hook (10 s):** "Ravi's app says he earned ₹35,235 this month. He kept ₹20,365. His real pay is ₹81 an hour, not ₹141. Nobody ever showed him that."
+2. **Problem (15 s):** Delivery partners and drivers see a headline number that ignores petrol, repairs, data, EMI, unpaid riding and waiting. They can't tell which hours or areas lose money, unions argue without honest data, and riders have no salary slip for a loan.
+3. **Demo (45 s):** see section 3.
+4. **Why it works (10 s):** It *measures* (screenshots plus a GPS shift tracker for real hours and unpaid kilometres), it's honest (every number has an accuracy range), and it speaks the rider's language, by voice.
+5. **Impact and ask (10 s):** Rider gets a plan, union gets anonymous evidence (k ≥ 20), bank gets a verifiable statement. Next: platform-signed data and a pilot with a rider union.
 
-Pooled with consent and a 20-rider anonymity floor, the same data shows unions what pay really looks like by area and time, and a fair-pay floor per order. And riders get a tamper-evident income statement, clearly labelled self-reported, that a lender can verify by QR.
+## 2. What judges score, and where we answer it
+| Criterion | Our answer (all verifiable in the demo) |
+|---|---|
+| **Problem and impact** | Hidden wage gap; fair-pay floor per order and per km; union evidence; credit access via a tamper-evident statement |
+| **Innovation** | Measured unpaid riding (GPS) replacing the assumption; accuracy range; area-switching advice; order checker that costs a ride the way it costs the rider's day |
+| **Technical depth** | One cost model tested to balance exactly; Claude vision plus OCR fallback; grounded Ask (Claude sees only computed numbers); k-anonymity; SHA-256 statements with registry; hardened stdlib server; 19 Python tests plus an engine suite |
+| **Usability** | Opens in the phone's language, voice questions, one *Next best step*, plan my day, large text, installable |
+| **Feasibility** | Runs today, no dependencies, Docker/Vultr docs, CI |
+| **Honesty** | Simulated data is labelled everywhere; self-reported statement says so; limits listed below |
 
-Demo rider (synthetic, labelled as such): apps showed ₹35,235 over 24 days; after all costs the rider kept ₹20,365, about ₹81 an hour against ₹141 implied. Lunch in Kukatpally paid ₹18 an hour; evenings in Madhapur on Zomato paid ₹135.
+## 3. Three-minute demo script (works without any API key)
+1. **Landing (0:00):** switch to తెలుగు, the page changes. Tap **Demo rider · Bengaluru** (or Hyderabad).
+2. **The answer (0:15):** "Cash in hand" and the sentence. Open *Show full calculation*: apps' total → cuts → fuel and repairs → data → EMI → cash. Tap *How accurate is this?* for the range.
+3. **Measured, not assumed (0:40):** the **shift tracker** card: 64 simulated shifts, unpaid riding *measured* by GPS. A real shift shows a live timer and kilometres.
+4. **Do something (1:00):** **Plan my day** (goal ₹800 → an evening window in the best area); the advice card says *move* from the weak lunch area using city data (labelled simulated); tap the speaker.
+5. **Ask (1:30):** the floating button; "Should I take ₹40 for 3 km?" → verdict with the maths. Say "voice works too".
+6. **Real upload (1:50):** *Add screenshots → Try sample screenshots*; real OCR reads three generated screenshots; review, correct a number, **Save**. Run it again: duplicate skipped.
+7. **City and Proof (2:25):** switch Hyderabad/Bengaluru; locked cells under 20 riders; **Proof**: create the statement, open the verify link ✔, edit a number ✖.
+8. **Close (2:50):** "One honest number for the rider, the union and the bank."
 
-## 3-minute demo
-1. **0:00** Landing. "The apps showed ₹35,235. What did Ravi actually make?" Switch to తెలుగు to show the page change language.
-2. **0:20** **Add screenshots → Try sample screenshots.** Real OCR reads three generated test screenshots; the review table appears. Fix a misread bonus, show the red validation on a bad value, **Save**. Run the samples again: "already imported, skipped".
-3. **1:00** **See a demo rider.** Cash in hand ₹20,365 and the ledger. Tap a single day. Point at the unpaid-riding note and profit before EMI.
-4. **1:25** Point at the **shift tracker** card (64 simulated shifts; unpaid riding *measured* at 0.45 extra km per paid km). Open **Ask** (the floating button): tap *Should I take ₹40 for 3 km?* — or hold the mic and say it in Hindi, Telugu or Tamil. The answer comes from the rider's own numbers (Claude when a key is set, on-device rules otherwise, and it says which). Then the **Right now** card (set the dropdown to 13:00): slow window, next good one 17:00 to 23:00. Press the speaker on an advice row in Telugu.
-5. **1:50** **Insights → What-if.** *Drop weakest windows*: monthly cash falls ₹2,799, real pay per hour rises ₹81 to ₹107 and 3.5 hours a day come back. Fuel +20% alone costs ₹1,399 a month. Then the **Check order** tab: ₹32 / 4.5 km is *Skip it*; ₹80 / 2 km is *Take it*.
-6. **2:20** **City** (labelled simulated): heatmap, "You ₹18/h vs city ₹56/h", locked cells under 20 riders, fair-pay floor.
-7. **2:40** **Proof**: create statement, evidence table (self-reported yes, platform/bank certified no), open the verify link ✔, edit a number ✖.
+## 4. Questions judges will ask
+* **Can riders fake it?** The statement says *self-reported*, is tamper-evident, carries screenshot hashes, and is not platform- or bank-certified. Roadmap: platform-signed exports or Account-Aggregator-style consent.
+* **Are the costs right?** Defaults are editable assumptions; the app shows a range and lets the rider calibrate petrol cost per km; unpaid riding is measured from GPS after 3 paired shifts.
+* **Is the city data real?** Hyderabad and Bengaluru are *simulated* demo datasets, labelled on every screen. Live cells appear only at 20+ real contributors.
+* **Why not just ask an LLM?** Exact numbers come from the engine, tested to balance to the paisa. The LLM reads screenshots and explains, from computed numbers only; it never calculates an order verdict.
+* **Privacy?** Screenshots are never stored; only the total GPS distance is kept, never the route; sharing sends only platform, area, time band and ₹/hour under a random id.
 
-## What makes it different
-* **It measures, not just reads:** the shift tracker records the rider's real online hours and GPS distance, so unpaid riding and waiting are *measured* (and labelled so), not assumed.
-* **Honest accuracy:** the headline number comes with a range (e.g. ₹65–₹95/h) that shrinks when the rider calibrates their real petrol cost per km.
-* **AI where it helps, maths where it must be exact:** Claude reads screenshots and explains in the rider's language; order checks and what-ifs are computed by the engine, never guessed by a model.
-* **Zero-effort UX:** opens in the phone's language, voice questions, one *Next best step* card, installable like an app, larger-text mode.
+## 5. Before you submit (checklist)
+- [ ] Deploy and put the **live URL** in the submission (`deploy/VULTR.md`; run `python tools/smoke.py <url>`).
+- [ ] If you have an Anthropic key, set it, then test one **real** earnings screenshot and the Ask button once before the demo.
+- [ ] Test on a **real phone** (GPS shift, voice question, Add to Home screen).
+- [ ] Record a 2-minute screen video following section 3; add 4 screenshots from `docs/screens/`.
+- [ ] Push the repo; confirm CI is green.
+- [ ] Rehearse the pitch twice with a timer.
 
-## Why it matters
-* **Real problem:** a hidden wage gap for lakhs of workers; no salary slip for credit; no honest data for bargaining.
-* **AI does real work:** screenshot → structured orders, in any app layout and language, with human review and honest failure modes.
-* **Technically credible:** one correct cost model (tested to balance exactly), consistent simulator, k-anonymous aggregation, hashed statements with registry, hardened server, 14 Python tests and an engine suite.
-
-## Likely questions
-* **Can riders fake it?** The statement says self-reported. It is tamper-evident, carries screenshot hashes for audit, and is not platform- or bank-certified. Roadmap: platform-signed exports or Account-Aggregator-style consent.
-* **Are the costs right?** They are editable assumptions with sensible defaults; the formula and break-even per km are shown. Calibrating with real contributions is what the city layer is for.
-* **City data?** Simulated, labelled on every screen. The demo rider's data is never submitted. Live cells appear only at 20+ distinct contributors.
-* **Privacy?** Screenshots are never stored. Sharing sends platform, area, time band and ₹/hour only, under a random anonymous id.
-
-## Honest status
-* Claude vision is implemented and tested against a local mock of the API; it has not been run against live screenshots because no key was available during development. On-device OCR is verified on the bundled sample screenshots only.
-* Docker and Vultr deployment are documented and the smoke test is provided, but the author has not executed a Vultr deployment.
+## 6. Honest status (say it if asked)
+* Claude vision and Ask with Claude are tested against a local mock of the API only (no key was available).
+* GPS tracking was verified with simulated fixes; offline install and voice input could not be tested in the development browser.
+* Docker and Vultr deployment are documented but were not executed.
+* On-device OCR is verified on the bundled sample screenshots only.
