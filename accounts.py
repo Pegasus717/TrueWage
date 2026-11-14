@@ -263,6 +263,14 @@ def clean_userdata(d):
                             "amount": _num(x.get("amount"), 0, 500000), "litres": _num(x.get("litres"), 0, 500), "odo": _num(x.get("odo"), 0, 10000000),
                             "note": _str(x.get("note"), 80)}
                            for x in d["expenses"] if isinstance(x, dict) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(x.get("date", ""))) and _num(x.get("amount"), 0, 500000) > 0]
+    if isinstance(d.get("analytics"), dict) and d["analytics"].get("days"):
+        a = d["analytics"]
+        out["analytics"] = {"from": _str(a.get("from"), 10), "to": _str(a.get("to"), 10), "days": int(_num(a.get("days"), 0, 100000)), "orders": int(_num(a.get("orders"), 0, 10000000)),
+                            **{k: _num(a.get(k), -1e9, 1e9) for k in ("hours", "appShown", "gross", "cost", "net", "perHr", "appPerHr", "lo", "hi")},
+                            "byDay": [{"date": _str(x.get("date"), 10), "orders": int(_num(x.get("orders"), 0, 100000)), **{k: _num(x.get(k), -1e9, 1e9) for k in ("hours", "appShown", "gross", "net", "perHr")}}
+                                      for x in (a.get("byDay") or [])[:1500] if isinstance(x, dict) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(x.get("date", "")))],
+                            "slots": [{"zone": _str(x.get("zone"), 40, "Unknown"), "daypart": _str(x.get("daypart"), 12), "orders": int(_num(x.get("orders"), 0, 100000)), "hours": _num(x.get("hours"), 0, 100000), "perHr": _num(x.get("perHr"), -1e6, 1e6)}
+                                      for x in (a.get("slots") or [])[:600] if isinstance(x, dict) and x.get("daypart") in ("morning", "lunch", "afternoon", "evening", "night")]}
     if "profile" in d:
         if not isinstance(d["profile"], dict):
             raise AuthError("bad_data")
@@ -307,6 +315,11 @@ UP_EXP = store.upsert_sql("expenses", ["user_id", "eid", "date", "category", "am
 UP_STMT = store.upsert_sql("statements", ["user_id", "sid", "ts", "period_from", "period_to", "monthly_take_home"], ["user_id", "sid"])
 
 
+UP_AS = store.upsert_sql("analytics_summary", ["user_id", "updated", "from_date", "to_date", "days", "orders", "hours", "app_shown", "gross", "cost", "net", "per_hr", "app_per_hr", "lo_per_hr", "hi_per_hr"], ["user_id"])
+UP_AD = store.upsert_sql("analytics_days", ["user_id", "date", "orders", "hours", "app_shown", "gross", "cost", "net", "per_hr"], ["user_id", "date"])
+UP_ASL = store.upsert_sql("analytics_slots", ["user_id", "zone", "daypart", "orders", "hours", "per_hr"], ["user_id", "zone", "daypart"])
+
+
 def _mirror(c, uid, new, old):
     """Rewrite the relational copy of every part of the document that changed. Runs inside the caller's transaction."""
     if "sessions" in new and new.get("sessions") != old.get("sessions"):
@@ -320,6 +333,18 @@ def _mirror(c, uid, new, old):
     if "shifts" in new and new.get("shifts") != old.get("shifts"):
         c.execute("DELETE FROM shifts WHERE user_id=?", (uid,))
         c.executemany(UP_SHIFT, [(uid, x["id"], x["date"], x["platform"], x["startTs"], x["endTs"], x["onlineMin"], x["km"], x["gps"], x.get("zone"), json.dumps(x.get("zoneMin") or {})) for x in new["shifts"]])
+    if new.get("analytics") and new.get("analytics") != old.get("analytics"):
+        a = new["analytics"]
+        c.execute(UP_AS, (uid, int(time.time()), a["from"], a["to"], a["days"], a["orders"], a["hours"], a["appShown"], a["gross"], a["cost"], a["net"], a["perHr"], a["appPerHr"], a["lo"], a["hi"]))
+        c.execute("DELETE FROM analytics_days WHERE user_id=?", (uid,))
+        c.executemany(UP_AD, [(uid, x["date"], x["orders"], x["hours"], x["appShown"], x["gross"], x["gross"] - x["net"], x["net"], x["perHr"]) for x in a["byDay"]])
+        c.execute("DELETE FROM analytics_slots WHERE user_id=?", (uid,))
+        merged = {}
+        for x in a["slots"]:                                         # one row per area and time of day
+            k = (x["zone"], x["daypart"])
+            m = merged.setdefault(k, [0, 0.0, 0.0])
+            m[0] += x["orders"]; m[1] += x["hours"]; m[2] += x["perHr"] * x["hours"]
+        c.executemany(UP_ASL, [(uid, z, d, m[0], m[1], (m[2] / m[1]) if m[1] else 0.0) for (z, d), m in merged.items()])
     if "expenses" in new and new.get("expenses") != old.get("expenses"):
         c.execute("DELETE FROM expenses WHERE user_id=?", (uid,))
         c.executemany(UP_EXP, [(uid, x["id"] or "e%d" % i, x["date"], x["category"], x["amount"], x["litres"], x["odo"], x["note"]) for i, x in enumerate(new["expenses"])])
@@ -395,7 +420,9 @@ def history(user_id, limit=50):
             return [dict(r) for r in c.execute(sql, a).fetchall()]
         st = c.execute("SELECT COUNT(*) AS days, CAST(COALESCE(SUM(n_orders),0) AS BIGINT) AS orders, COALESCE(SUM(pay+incentive+bonus-deduction),0) AS gross, COALESCE(SUM(km),0) AS km, "
                        "MIN(date) AS first, MAX(date) AS last FROM work_sessions WHERE user_id=?", (user_id,)).fetchone()
-        return {"stats": dict(st),
+        summ = c.execute("SELECT updated, from_date, to_date, days, orders, hours, app_shown, gross, cost, net, per_hr, app_per_hr, lo_per_hr, hi_per_hr FROM analytics_summary WHERE user_id=?", (user_id,)).fetchone()
+        slots = [dict(r) for r in c.execute("SELECT zone, daypart, orders, hours, per_hr FROM analytics_slots WHERE user_id=? AND hours>=1.5 AND zone<>'Unknown' ORDER BY per_hr DESC LIMIT 5", (user_id,)).fetchall()]
+        return {"stats": dict(st), "analytics": dict(summ) if summ else None, "bestSlots": slots,
                 "imports": rows("SELECT ts, reader, images, cached, sent, sessions, orders, models FROM imports WHERE user_id=? ORDER BY id DESC LIMIT ?", user_id, limit),
                 "statements": rows("SELECT sid, ts, period_from, period_to, monthly_take_home FROM statements WHERE user_id=? ORDER BY ts DESC LIMIT ?", user_id, limit),
                 "events": rows("SELECT ts, kind, detail FROM events WHERE user_id=? ORDER BY id DESC LIMIT ?", user_id, limit),

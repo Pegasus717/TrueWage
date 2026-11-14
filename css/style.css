@@ -456,3 +456,85 @@ a.link,button.link{color:var(--ink);font-weight:600;text-decoration-color:var(--
 .status{border-radius:12px}
 .hm td{border-radius:10px}
 .landing .seg button[aria-pressed=true],.seg button[aria-pressed=true]{background:var(--ink);color:#fff}
+
+/* ================= v17: final theme: calm, professional, built for people who work outdoors =================
+   Ink and white, one green for money, amber only for warnings. Manrope for headings and numbers, Inter for text.
+   High contrast for sunlight, 48px touch targets, generous alignment grid (16px gutters, 8px rhythm). */
+:root{--bg:#F6F7F9;--surface:#FFFFFF;--ink:#0F172A;--ink2:#475569;--ink3:#64748B;--rule:#E5E7EB;--mark:#22C55E;--yellow:#22C55E;--yellow-d:#16A34A;
+  --accent:#16A34A;--kept:#15803D;--kept-bg:#DCFCE7;--lost:#B91C1C;--lost-bg:#FEE2E2;--warn:#B45309;--warn-bg:#FEF3C7;--r:14px;--tap:48px;
+  --head:"Manrope","Inter",system-ui,"Noto Sans Devanagari","Noto Sans Telugu","Noto Sans Tamil",sans-serif;
+  --serif:var(--head);--sans:"Inter",system-ui,-apple-system,"Segoe UI","Noto Sans Devanagari","Noto Sans Telugu","Noto Sans Tamil",Roboto,sans-serif;
+  --shadow:0 1px 2px rgba(15,23,42,.05),0 2px 8px rgba(15,23,42,.05)}
+body{background:var(--bg);color:var(--ink);font:16px/1.55 var(--sans);letter-spacing:0}
+h1,h2,h3,.h2,.h3,.logo,.kept-n,.stats .v,.verdict .word,.g-big,.bigfield input,.bigfield span,.lg.end .v,.shift-big .num{font-family:var(--head)}
+.h2{font:800 24px/1.25 var(--head);letter-spacing:-.4px}
+.h3{font:700 17px/1.3 var(--head);letter-spacing:-.1px}
+.eyebrow,.note,.muted{color:var(--ink2)}
+main{max-width:1080px;padding:20px 16px 56px}
+@media(min-width:900px){main{padding:32px 32px 72px}}
+/* top bar and tabs */
+.bar{background:#fff;border-bottom:1px solid var(--rule);box-shadow:none;height:60px;padding:0 16px}
+.bar::after{display:none}
+.logo{font:800 19px/1 var(--head);letter-spacing:-.4px;color:var(--ink);gap:10px}
+.logo svg{width:30px;height:30px}
+.nav button{font:600 15px var(--sans);color:var(--ink2);height:60px}.nav button[aria-current=page]{color:var(--ink);border-bottom:3px solid var(--accent)}
+.bar .btn{background:var(--ink);color:#fff;box-shadow:none;border-radius:10px;min-height:44px}
+.bar .sel,#btn-acct{background-color:#fff;border:1px solid var(--rule);box-shadow:none}
+.tabbar{background:#fff;border-top:1px solid var(--rule);box-shadow:none}
+.tabbar button{color:var(--ink3);font:600 11.5px var(--sans)}
+.tabbar button[aria-current=page]{color:var(--ink)}
+.tabbar button[aria-current=page] svg{stroke:var(--accent)}
+.tabbar button[aria-current=page]::before{left:34%;right:34%;height:3px;background:var(--accent);border:0;border-radius:0 0 4px 4px}
+svg.i{stroke-width:1.75}
+/* buttons */
+.btn{background:var(--ink);color:#fff;border:1px solid var(--ink);box-shadow:none;border-radius:12px;font:700 16px var(--sans);letter-spacing:0;min-height:var(--tap)}
+.btn:hover{background:#1E293B}
+.btn:active{transform:scale(.985);box-shadow:none}
+.btn.alt{background:#fff;color:var(--ink);border:1px solid #CBD5E1}
+.btn.alt:hover{background:#F8FAFC}
+.btn.danger{background:#fff;color:var(--lost);border:1px solid #FCA5A5;box-shadow:none}
+.btn.sm{border-radius:10px;font-size:15px;box-shadow:none}
+.btn.lg{min-height:54px;font-size:17px;border-radius:14px}
+.btn[disabled]{opacity:.45;box-shadow:none}
+#l-signup,.acts .btn:first-child,.btn.go,#au-go{background:var(--accent);border-color:var(--accent);color:#fff}
+#l-signup:hover,.acts .btn:first-child:hover{background:#15803D}
+a.link,button.link{color:var(--ink);font-weight:600;text-decoration:underline;text-decoration-color:var(--accent);text-decoration-thickness:2px;text-underline-offset:3px}
+#fab,.fab{background:var(--ink);color:#fff;border:0;box-shadow:0 6px 20px rgba(15,23,42,.28)}
+#fab svg,.fab svg{stroke:#fff}
+/* cards and surfaces */
+.card{background:#fff;border:1px solid var(--rule);border-radius:var(--r);box-shadow:var(--shadow);padding:20px}
+.next{background:#fff;border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:var(--r);box-shadow:var(--shadow)}
+.pill{background:#ECFDF5;color:#166534;border:1px solid #BBF7D0;font-weight:700}
+.sheet-in{border:0;border-radius:20px 20px 0 0;background:var(--bg)}
+.drop{border:2px dashed #CBD5E1;background:#fff;border-radius:16px}
+.drop.over{background:#F0FDF4;border-color:var(--accent)}
+.toast{background:var(--ink);color:#fff;border:0;border-radius:12px;font-weight:600}
+.best-slot{background:#ECFDF5;border:1px solid #BBF7D0;color:#166534;border-radius:12px;font-weight:700}
+.status{border-radius:12px}.status.ok{background:var(--kept-bg);color:var(--kept)}
+.hm td{border-radius:8px}
+.seg button{border-radius:10px;border:1px solid #CBD5E1;background:#fff;font-weight:600}
+.seg button[aria-pressed=true]{background:var(--ink);color:#fff;border-color:var(--ink)}
+.chips button{border-radius:10px;border:1px solid #CBD5E1;background:#fff;color:var(--ink);font-weight:600}
+.field input,.field select,.sel{border:1px solid #CBD5E1;border-radius:10px;background-color:#fff}
+.field input:focus,.field select:focus,:focus-visible{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(34,197,94,.25)}
+.hl,.hero h1 em{background:linear-gradient(transparent 64%,#BBF7D0 64%);font-style:normal}
+/* the money card */
+.kept-card{background:linear-gradient(165deg,#0B1220 0%,#14233A 100%);border:0;border-radius:18px;box-shadow:0 8px 24px rgba(15,23,42,.22);padding:22px 20px}
+.kept-card::before{display:none}
+.kept-card .kept-lbl{color:#94A3B8;font:600 14px var(--sans);margin:0}
+.kept-card .kept-n{color:#fff;font:800 clamp(46px,13vw,72px)/1 var(--head);letter-spacing:-2px;margin:6px 0 10px}
+.kept-card .kept-n.neg{color:#FCA5A5}
+.kept-card .kept-sum{color:#CBD5E1;font-size:16px}.kept-card .kept-sum b{color:#86EFAC}
+.kept-card .kbar{background:rgba(255,255,255,.14);height:10px;border-radius:999px}
+.kept-card .kbar i{background:#22C55E;border-radius:999px}
+.kept-card .kbar-l,.g-leg{color:#94A3B8;font-size:13px}
+.gauge .g-sm{fill:#94A3B8}.gauge .g-big{fill:#fff;font-weight:800}
+/* landing: calm hero, no cartoon scene */
+.routeart{display:none}
+.hero h1{font:800 clamp(30px,7vw,44px)/1.12 var(--head);letter-spacing:-1.2px}
+.hero .lead{color:var(--ink2);font-size:17px}
+.steps .n{background:var(--ink);color:#fff;font-family:var(--head)}
+.welcome h1{font-family:var(--head)}
+.kbar-l{gap:16px;align-items:flex-start}.kbar-l span:last-child{text-align:right;flex:none;max-width:48%}
+.kept-card{padding-bottom:26px}
+@media(max-width:520px){#fab,.fab{right:14px;bottom:calc(var(--tab-h) + 14px + env(safe-area-inset-bottom))}}

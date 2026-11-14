@@ -212,6 +212,10 @@
   Object.assign(L.hi, {"adm_h": "एडमिन अवलोकन", "adm_riders": "राइडर", "adm_ai": "आज AI इमेज", "adm_note": "{i} स्क्रीनशॉट पठन, {s} विवरण, {c} शहर योगदान, {a} कैश्ड AI पठन।", "adm_list": "सभी राइडर", "adm_last": "आख़िरी सक्रियता", "ev_saved": "सेव किया"});
   Object.assign(L.te, {"adm_h": "అడ్మిన్ అవలోకనం", "adm_riders": "రైడర్లు", "adm_ai": "ఈరోజు AI చిత్రాలు", "adm_note": "{i} స్క్రీన్‌షాట్ రీడ్‌లు, {s} ప్రకటనలు, {c} నగర సహకారాలు, {a} కాష్ AI రీడింగ్‌లు.", "adm_list": "అన్ని రైడర్లు", "adm_last": "చివరి క్రియాశీలత", "ev_saved": "సేవ్ చేశారు"});
   Object.assign(L.ta, {"adm_h": "நிர்வாக மேலோட்டம்", "adm_riders": "ரைடர்கள்", "adm_ai": "இன்று AI படங்கள்", "adm_note": "{i} ஸ்கிரீன்ஷாட் வாசிப்புகள், {s} அறிக்கைகள், {c} நகர பங்களிப்புகள், {a} சேமித்த AI வாசிப்புகள்.", "adm_list": "அனைத்து ரைடர்கள்", "adm_last": "கடைசி செயல்பாடு", "ev_saved": "சேமிக்கப்பட்டது"});
+  Object.assign(L.en, {"hist_an": "Your analytics (saved)"});
+  Object.assign(L.hi, {"hist_an": "आपका विश्लेषण (सेव)"});
+  Object.assign(L.te, {"hist_an": "మీ విశ్లేషణ (సేవ్ అయింది)"});
+  Object.assign(L.ta, {"hist_an": "உங்கள் பகுப்பாய்வு (சேமிக்கப்பட்டது)"});
   let lang = 'en';
   function t(k, vars) {
     let s = (L[lang] && L[lang][k]) || L.en[k] || k;

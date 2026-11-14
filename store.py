@@ -7,12 +7,14 @@ Everything the app persists lives here: accounts, sessions, each rider's data an
 contributions, the AI reading cache and the AI daily budget. Nothing is kept in JSON files any more.
 
 Application code writes SQL with '?' placeholders and standard syntax (INSERT ... ON CONFLICT, RETURNING); this module adapts it per backend.
-Postgres tables are created in their own schema ("truewage", never exposed by Supabase's public REST API) and Row Level Security is enabled on
-every table, so the project's public anon key cannot read or write any of it. Only the server's own database connection can.
+Postgres tables live in the "public" schema (so they appear in Supabase's Table Editor). Row Level Security is enabled on every table with no
+policies, and all privileges are revoked from Supabase's anon/authenticated roles, so the project's public anon key cannot read or write any of it.
+Only the server's own database connection (the postgres role in DATABASE_URL) can.
 """
 import contextlib, os, re, sqlite3, threading, time
 
-SCHEMA_NAME = "truewage"
+SCHEMA_NAME = os.environ.get("TRUEWAGE_DB_SCHEMA", "public")      # "public" so the tables show up in the Supabase Table Editor by default
+OLD_SCHEMA = "truewage"                                                  # earlier versions used this schema; its tables are moved automatically
 _kind = "sqlite"
 _path = None
 _url = None
@@ -39,6 +41,10 @@ TABLES = [
     ("extract_cache", "CREATE TABLE IF NOT EXISTS extract_cache(key TEXT PRIMARY KEY, screens TEXT NOT NULL, ts %BIG% NOT NULL)"),
     ("ai_budget", "CREATE TABLE IF NOT EXISTS ai_budget(day TEXT PRIMARY KEY, images %BIG% NOT NULL DEFAULT 0)"),
     ("kv", "CREATE TABLE IF NOT EXISTS kv(k TEXT PRIMARY KEY, v TEXT NOT NULL)"),
+    # per-rider analytics (computed by the app's calculation engine, stored so a rider's analytics follow them and can be queried)
+    ("analytics_summary", "CREATE TABLE IF NOT EXISTS analytics_summary(user_id %BIG% PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, updated %BIG% NOT NULL, from_date TEXT, to_date TEXT, days %BIG%, orders %BIG%, hours %REAL%, app_shown %REAL%, gross %REAL%, cost %REAL%, net %REAL%, per_hr %REAL%, app_per_hr %REAL%, lo_per_hr %REAL%, hi_per_hr %REAL%)"),
+    ("analytics_days", "CREATE TABLE IF NOT EXISTS analytics_days(user_id %BIG% NOT NULL REFERENCES users(id) ON DELETE CASCADE, date TEXT NOT NULL, orders %BIG%, hours %REAL%, app_shown %REAL%, gross %REAL%, cost %REAL%, net %REAL%, per_hr %REAL%, PRIMARY KEY(user_id, date))"),
+    ("analytics_slots", "CREATE TABLE IF NOT EXISTS analytics_slots(user_id %BIG% NOT NULL REFERENCES users(id) ON DELETE CASCADE, zone TEXT NOT NULL, daypart TEXT NOT NULL, orders %BIG%, hours %REAL%, per_hr %REAL%, PRIMARY KEY(user_id, zone, daypart))"),
 ]
 INDEXES = [
     "CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id)",
@@ -85,8 +91,18 @@ def init(data_dir):
         _path = os.path.join(data_dir, "truewage.db")
     with conn() as c:
         if _kind == "pg":
-            c.execute("CREATE SCHEMA IF NOT EXISTS %s" % SCHEMA_NAME)
+            if SCHEMA_NAME != "public":
+                c.execute("CREATE SCHEMA IF NOT EXISTS %s" % SCHEMA_NAME)
             c.execute("SET search_path TO %s" % SCHEMA_NAME)
+            if SCHEMA_NAME != OLD_SCHEMA:                      # move tables (with their data, keys and indexes) out of the old schema
+                moved = False
+                for r in c.execute("SELECT table_name FROM information_schema.tables WHERE table_schema=? AND table_type='BASE TABLE'", (OLD_SCHEMA,)).fetchall():
+                    t = r["table_name"]
+                    if c.execute("SELECT 1 FROM information_schema.tables WHERE table_schema=? AND table_name=?", (SCHEMA_NAME, t)).fetchone() is None:
+                        c.execute("ALTER TABLE %s.%s SET SCHEMA %s" % (OLD_SCHEMA, t, SCHEMA_NAME))
+                        moved = True
+                if moved:
+                    c.execute("DO $$ BEGIN DROP SCHEMA %s; EXCEPTION WHEN others THEN NULL; END $$" % OLD_SCHEMA)
         for _, sql in TABLES:
             c.execute(_ddl(sql))
         for sql in INDEXES:
@@ -94,8 +110,7 @@ def init(data_dir):
         if _kind == "pg":
             for name, _ in TABLES:                       # nobody but the server's own connection may touch these tables
                 c.execute("ALTER TABLE %s.%s ENABLE ROW LEVEL SECURITY" % (SCHEMA_NAME, name))
-            c.execute("DO $$ BEGIN REVOKE ALL ON SCHEMA truewage FROM anon, authenticated; REVOKE ALL ON ALL TABLES IN SCHEMA truewage FROM anon, authenticated; "
-                      "EXCEPTION WHEN undefined_object THEN NULL; END $$")
+                c.execute("DO $$ BEGIN REVOKE ALL ON TABLE %s.%s FROM anon, authenticated; EXCEPTION WHEN undefined_object THEN NULL; END $$" % (SCHEMA_NAME, name))
         c.execute("DELETE FROM sessions WHERE expires < ?", (int(time.time()),))
     return _kind
 

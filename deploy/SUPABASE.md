@@ -31,15 +31,15 @@ python server.py                       # GET /api/health now reports "db": "post
 
 ## Where to see the users and their data in Supabase
 
-TrueWage keeps its tables in their own schema called **`truewage`**, not in `public`, so the Table Editor does not show them until you switch:
+Open **Table Editor** (left menu). The tables are in the default `public` schema:
 
-1. Open your project, click **Table Editor** (left menu).
-2. At the top-left there is a schema dropdown that says `public`. Change it to **`truewage`**.
-3. You now see the tables:
-   * `users` (id, phone, name, password hash, language, created): the list of riders
-   * `userdata` (each rider's full saved document), `work_sessions` and `orders` (the rider's days and every order), `shifts`, `expenses`
-   * `imports` (every screenshot reading), `statements`, `events` (sign-up, login, saves, exports), `ai_usage` (per rider per day)
-   * `registry`, `contributions`, `extract_cache`, `ai_budget`, `kv` (server-wide)
+* `users` (id, phone, name, password hash, language, created): the list of riders
+* `userdata` (each rider's saved document), `work_sessions` and `orders` (days and every order), `shifts`, `expenses`
+* `analytics_summary`, `analytics_days`, `analytics_slots`: each rider's computed analytics (real pay per hour, kept cash, per-day and per-area results)
+* `imports` (every screenshot reading), `statements`, `events` (sign-up, login, saves, exports), `ai_usage` (per rider per day)
+* `registry`, `contributions`, `extract_cache`, `ai_budget`, `kv` (server-wide)
+
+If you used an earlier version, the tables that were in a `truewage` schema are moved into `public` automatically (data kept) the next time the server starts.
 
 The **Authentication > Users** page of Supabase stays empty on purpose: TrueWage does its own login (phone + password, hashed with scrypt) and does not use Supabase Auth.
 
@@ -65,7 +65,7 @@ python tools/migrate_to_db.py          # copies truewage.db, registry.json and c
 ## How it is kept private
 
 * The app connects with the database password from `DATABASE_URL`. Riders' browsers never talk to Supabase directly and the public *anon key* is never used.
-* Tables are created in their own schema (`truewage`), which Supabase does not expose through its auto-generated REST API, and **Row Level Security is enabled on every table** with no policies, so even the anon key could not read or write them. The full SQL is in [supabase_schema.sql](supabase_schema.sql).
+* **Row Level Security is enabled on every table** with no policies, and all privileges are revoked from Supabase's `anon` and `authenticated` roles, so even the public anon key could not read or write them. The full SQL is in [supabase_schema.sql](supabase_schema.sql).
 * Passwords are stored as scrypt hashes; session tokens only as SHA-256 hashes.
 
 ## Troubleshooting

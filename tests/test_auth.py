@@ -289,6 +289,29 @@ class HistoryTests(unittest.TestCase):
         with A._conn() as c:
             self.assertEqual(c.execute("SELECT COUNT(*) FROM orders WHERE user_id=?", (self.uid,)).fetchone()[0], 1)
 
+    def test_analytics_are_stored_per_rider(self):
+        A = self.A
+        an = {"from": "2026-11-12", "to": "2026-11-13", "days": 2, "orders": 3, "hours": 6.5, "appShown": 300, "gross": 280, "cost": 90, "net": 190, "perHr": 29.2, "appPerHr": 46, "lo": 25, "hi": 33,
+              "byDay": [{"date": "2026-11-12", "orders": 1, "hours": 3, "appShown": 100, "gross": 90, "net": 60, "perHr": 20}, {"date": "2026-11-13", "orders": 2, "hours": 3.5, "appShown": 200, "gross": 190, "net": 130, "perHr": 37}],
+              "slots": [{"zone": "Uppal", "daypart": "evening", "orders": 2, "hours": 3, "perHr": 40}, {"zone": "Uppal", "daypart": "evening", "orders": 1, "hours": 3, "perHr": 20}, {"zone": "X", "daypart": "bogus", "orders": 1, "hours": 1, "perHr": 1}]}
+        uid = A.register("Analytics Rider", "9000044444", "password-123", "en")[0]["id"]
+        A.put_data(uid, {"sessions": [], "analytics": an}, 0)
+        h = A.history(uid)
+        self.assertEqual((h["analytics"]["days"], round(h["analytics"]["net"]), round(h["analytics"]["per_hr"], 1)), (2, 190, 29.2))
+        with A._conn() as c:
+            self.assertEqual(c.execute("SELECT COUNT(*) AS n FROM analytics_days WHERE user_id=?", (uid,)).fetchone()["n"], 2)
+            sl = c.execute("SELECT orders, hours, per_hr FROM analytics_slots WHERE user_id=?", (uid,)).fetchall()
+            self.assertEqual(len(sl), 1)                                      # the bogus daypart was dropped; duplicates merged by hours
+            self.assertEqual((sl[0]["orders"], sl[0]["hours"], round(sl[0]["per_hr"], 1)), (3, 6.0, 30.0))
+            cost = c.execute("SELECT cost FROM analytics_days WHERE user_id=? AND date='2026-11-13'", (uid,)).fetchone()["cost"]
+            self.assertEqual(round(cost), 60)
+        other = A.register("Other Analytics", "9000055555", "password-123", "en")[0]["id"]
+        self.assertIsNone(A.history(other)["analytics"])                      # nobody else sees it
+        A.delete_account(uid, "password-123")
+        with A._conn() as c:
+            for t in ("analytics_summary", "analytics_days", "analytics_slots"):
+                self.assertEqual(c.execute("SELECT COUNT(*) AS n FROM %s WHERE user_id=?" % t, (uid,)).fetchone()["n"], 0, t)
+
     def test_import_and_statement_logs_and_cascade(self):
         A = self.A
         A.log_import(self.uid, "ai", 5, 2, 3, 2, 17, ["claude-haiku-5-5"]); A.log_statement(self.uid, "TW-ABC", "2026-10-01", "2026-11-13", 21000)

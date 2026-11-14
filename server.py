@@ -63,7 +63,7 @@ STATIC_OK = re.compile(r"^/(index\.html|manifest\.json|sw\.js|icon\.svg|css/[\w.
 MIME = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "application/javascript; charset=utf-8",
         ".json": "application/manifest+json", ".svg": "image/svg+xml"}
 
-PROMPT_VERSION = "v4"
+PROMPT_VERSION = "v5"
 PROMPT = """You read screenshots from Indian gig-work apps (Swiggy, Zomato, Rapido, Ola, Uber, Porter, Blinkit, Zepto, Shadowfax ...), for riders and drivers.
 Screens may be low resolution, cropped, dark or light, English / Hindi / Telugu / Tamil / Kannada or mixed. The images are numbered 1..N in the order given.
 Return ONLY JSON, no prose, exactly this shape (one entry per image, in order):
@@ -79,7 +79,7 @@ RULES:
 - 'pay' = what the rider EARNED for that order or trip: use the headline net figure the screen calls Total earnings / Trip earnings / Order pay / the amount beside that order in history. Do NOT use: customer fare before fees, tax collected, cash collected from the customer, wallet deductions, tips already inside the headline, or the running totals.
 - 'incentive' = a surge / peak / extra for that order ONLY when it is listed separately and is NOT part of a breakup that adds up to the headline earnings. Components shown under a "Total earnings" breakup (base fare, time fare, distance fare, surge, platform charge) are already inside it: set incentive 0 and deduction 0 and never add them again. 'deduction' = a penalty or fee shown separately and NOT already subtracted in the headline figure. 'bonus' = a daily / weekly target or joining bonus not tied to one order.
 - 'km' = total distance of the trip (pickup leg + drop leg when both are shown). 'duration_min' = trip minutes if shown, or delivered time minus assigned time. 'time' = when the trip started / was assigned / listed.
-- 'zone' = the main locality / suburb of the PICKUP (for example "Cherlapally", "Banjara Hills", "Koramangala"), not a colony, street, building or landmark. If the address is cut off ("Cherlapa...") and you are sure which locality it is, write the full name. 'place_text' = the place words of the pickup address with every number, house/flat number, person name, phone number and order id removed (max 60 characters), or null.
+- 'zone' = the main locality / suburb of the PICKUP (for example "Cherlapally", "Banjara Hills", "Koramangala"), not a colony, street, building, landmark, restaurant, shop or company name (never "KFC", "Domino's" or a mall). If the address is cut off ("Cherlapa...") and you are sure which locality it is, write the full name. 'place_text' = the place words of the pickup address with every number, house/flat number, person name, phone number and order id removed (max 60 characters), or null.
 - Never return names, phone numbers, order ids, house numbers or full addresses anywhere.
 - A history list that shows only some orders: return the ones you can read, and ALSO put the screen's own count and total in reported_orders / reported_total.
 - One entry per image. Never invent orders that are not visible. If a number is unreadable use null for that field."""

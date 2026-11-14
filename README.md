@@ -207,7 +207,7 @@ erDiagram
     }
 ```
 
-Every per-rider table is keyed by `user_id` and deleted automatically (`ON DELETE CASCADE`) when the rider deletes their account. Server-wide tables: `registry` (income statement hashes), `contributions` (anonymous city analytics), `extract_cache` and `ai_budget` (AI reading), `kv` (server secret). The full schema is in [deploy/supabase_schema.sql](deploy/supabase_schema.sql); the server creates it by itself on start-up.
+Every per-rider table is keyed by `user_id` and deleted automatically (`ON DELETE CASCADE`) when the rider deletes their account. Per-rider analytics are stored too (`analytics_summary`, `analytics_days`, `analytics_slots`). Server-wide tables: `registry` (income statement hashes), `contributions` (anonymous city analytics), `extract_cache` and `ai_budget` (AI reading), `kv` (server secret). In Supabase open **Table Editor** (schema `public`) to browse everything. The full schema is in [deploy/supabase_schema.sql](deploy/supabase_schema.sql); the server creates it by itself on start-up.
 
 ### 2.4 How the engine turns orders into cash
 

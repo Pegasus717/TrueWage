@@ -11,24 +11,24 @@
   const LOC = { en: 'en-IN', hi: 'hi-IN', te: 'te-IN', ta: 'ta-IN' };
 
   const ICON = {
-    home: '<path d="M3 11l9-8 9 8v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
-    check: '<circle cx="12" cy="12" r="9"/><path d="M8 12.5l3 3 5-6"/>',
-    insights: '<path d="M4 20V11M10 20V4M16 20v-6M22 20H2"/>',
-    city: '<path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/>',
-    proof: '<path d="M12 3l8 3v6c0 4.5-3.2 8-8 9-4.8-1-8-4.5-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/>',
-    volume: '<path d="M11 5L6 9H3v6h3l5 4zM15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/>',
-    share: '<path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7M16 6l-4-4-4 4M12 2v14"/>',
-    print: '<path d="M6 9V3h12v6M6 18H4a1 1 0 0 1-1-1v-6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v6a1 1 0 0 1-1 1h-2M7 14h10v7H7z"/>',
-    download: '<path d="M12 3v12M7 10l5 5 5-5M4 21h16"/>',
-    link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
-    lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
-    upload: '<path d="M12 16V4M7 9l5-5 5 5M4 20h16"/>',
-    user: '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-7 8-7s8 3 8 7"/>',
-    image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M21 16l-5-5-8 8"/>',
-    mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
-    bike: '<circle cx="5.5" cy="17" r="3.2"/><circle cx="18.5" cy="17" r="3.2"/><path d="M5.5 17l3.5-7h5l2 4h2.5M9 10L7.5 7H5M13 10l-1.5-3H10"/>',
-    auto: '<circle cx="6" cy="18" r="2.6"/><circle cx="18" cy="18" r="2.6"/><path d="M3 15V9l4-4h9l3 4v6h-3.4M8.6 18h6.8M3 15h2.4M10 5v5h9"/>',
-    gauge: '<path d="M4 18a8 8 0 1 1 16 0"/><path d="M12 18l4-5"/>'
+    home: '<path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/>',
+    check: '<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
+    insights: '<path d="M3 3v18h18"/><path d="M18 17V9M13 17V5M8 17v-3"/>',
+    city: '<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/>',
+    proof: '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/>',
+    volume: '<path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M19 5a10 10 0 0 1 0 14"/>',
+    share: '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/>',
+    print: '<path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8" rx="1"/>',
+    download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/>',
+    link: '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
+    lock: '<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+    upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/>',
+    user: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+    image: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/>',
+    mic: '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v3"/>',
+    bike: '<circle cx="5.5" cy="17.5" r="3.5"/><circle cx="18.5" cy="17.5" r="3.5"/><path d="M15 6a1 1 0 1 0 0-2 1 1 0 0 0 0 2zM12 17.5V14l-3-3 4-3 2 3h2"/>',
+    auto: '<path d="M5 17H3v-5l2-5h11l3 5h2v5h-2"/><circle cx="7.5" cy="17" r="2.5"/><circle cx="16.5" cy="17" r="2.5"/><path d="M10 17h4M3 12h16"/>',
+    gauge: '<path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/>'
   };
   const ic = n => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${ICON[n]}</svg>`;
 
@@ -757,10 +757,20 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
   const pickSync = () => { const o = {}; SYNC_KEYS.forEach(k => o[k] = S[k]); return o; };
   let syncTimer = null, pushing = false;
   function scheduleSync() { ui.sync = 'saving'; clearTimeout(syncTimer); syncTimer = setTimeout(pushData, 800); updateSyncUI(); }
+  /** The rider's computed analytics, saved with their data so they are stored per rider in the database (never the sample rider's). */
+  function analyticsSnapshot() {
+    const r = S.report; if (!r || S.demo || !r.byDay) return null;
+    let sn = null; try { sn = T.sensitivity(T.applyShifts(S.sessions, S.shifts), r.profile); } catch (e) { /* range is optional */ }
+    const tt = r.total;
+    return { from: r.dates[0], to: r.dates[r.dates.length - 1], days: r.daysWorked, orders: tt.n, hours: tt.hours, appShown: tt.appShown, gross: tt.gross, cost: tt.cost, net: tt.net, perHr: tt.perHr, appPerHr: tt.appPerHr,
+      lo: sn ? sn.lo : tt.perHr, hi: sn ? sn.hi : tt.perHr,
+      byDay: r.byDay.map(d => ({ date: d.date, orders: d.orders, hours: d.hours, appShown: d.appShown, gross: d.gross, net: d.net, perHr: d.perHr })),
+      slots: r.zoneDaypart.map(z => ({ zone: z.zone, daypart: z.daypart, orders: z.n, hours: z.hours, perHr: z.perHr })) };
+  }
   async function pushData() {
     if (!S.user || pushing) return;
     pushing = true;
-    try { const j = await api('PUT', 'api/me/data', { data: pickSync(), baseVersion: S.ver }); S.ver = j.version; ui.sync = 'saved'; }
+    try { const j = await api('PUT', 'api/me/data', { data: Object.assign(pickSync(), { analytics: analyticsSnapshot() }), baseVersion: S.ver }); S.ver = j.version; ui.sync = 'saved'; }
     catch (e) {
       if (e.status === 409) { try { await pullMerge(); } catch (e2) { ui.sync = 'offline'; } }
       else if (e.status === 401) { sessionExpired(); }
@@ -1121,6 +1131,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     const sec = (title, rows) => `<section class="card" style="margin-top:12px"><h3 class="h3">${title}</h3>${rows.length ? `<div class="hist">${rows.join('')}</div>` : `<p class="muted">${t('hist_empty')}</p>`}</section>`;
     b.innerHTML = `<div class="stats"><div><div class="k">${t('hist_days')}</div><div class="v num">${st.days}</div></div><div><div class="k">${t('orders_n')}</div><div class="v num">${st.orders}</div></div><div><div class="k">${t('hist_gross')}</div><div class="v num">${inr(st.gross)}</div></div><div><div class="k">km</div><div class="v num">${Math.round(st.km)}</div></div></div>
       <p class="note" style="margin-top:6px">${st.first ? esc(dLabel(st.first, { day: 'numeric', month: 'short', year: 'numeric' })) + ' – ' + esc(dLabel(st.last, { day: 'numeric', month: 'short', year: 'numeric' })) : ''}</p>
+      ${h.analytics ? `<section class="card" style="margin-top:12px"><h3 class="h3">${t('hist_an')}</h3><div class="stats"><div><div class="k">${t('real')}</div><div class="v num">${inr(h.analytics.per_hr)}/h</div></div><div><div class="k">${t('shown')}</div><div class="v num">${inr(h.analytics.app_per_hr)}/h</div></div><div><div class="k">${t('you_kept')}</div><div class="v num">${inr(h.analytics.net)}</div></div><div><div class="k">${t('hours')}</div><div class="v num">${Math.round(h.analytics.hours)}</div></div></div><p class="note" style="margin-top:6px">${esc(t('acc_range', { lo: inr(h.analytics.lo_per_hr), hi: inr(h.analytics.hi_per_hr) }))}</p>${h.bestSlots.length ? `<p class="best-slot" style="margin-top:10px">${esc(h.bestSlots[0].zone)} · ${esc(t('dp_' + h.bestSlots[0].daypart))}: ${inr(h.bestSlots[0].per_hr)}/h</p>` : ''}</section>` : ''}
       <a class="btn alt block" style="margin-top:10px" href="api/me/export.csv" download>${ic('download')}${t('hist_export')}</a>
       ${sec(t('hist_zones'), h.topZones.map(z => `<div class="hrow"><span>${esc(z.zone)}</span><small>${z.orders} ${t('orders_n')}</small><b class="num">${inr(z.gross)}</b></div>`))}
       ${sec(t('hist_imports'), h.imports.map(i => `<div class="hrow"><span>${esc(fdate(i.ts))}</span><small>${esc(t('imp_line', { n: i.images, c: i.cached, s: i.sent, o: i.orders }))}</small></div>`))}
