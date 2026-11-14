@@ -12,6 +12,7 @@ Delivery partners and cab drivers on Swiggy, Zomato, Rapido and Ola see a headli
 
 ## What it does
 
+* **Rider accounts and private dashboards** – sign up with a name, 10-digit mobile number and password; every rider gets their own dashboard, and their data follows them across phones. Log in on a new phone and everything is there. Data made as a guest on the phone is merged into the account on sign-up. Without an account the app still works fully (data stays on that phone). Passwords are stored as salted **scrypt** hashes; the session is a random token in an `HttpOnly`, `SameSite=Strict` cookie (30 days, only a hash of it is stored); wrong-password attempts are throttled; every write carries a CSRF header; two devices editing at once are merged by record id (nothing is lost). Riders can change their password and **delete their account and all data** from the app. City contributions from an account use an anonymous HMAC id, so several phones count as one rider.
 * **Plan my day** – enter a take-home goal; the app builds an ordered schedule from your own best windows ("17:00–23:00 · Zomato · Madhapur · about ₹135/hour") and says honestly when your history can't reach the goal.
 * **Area switching** – "At lunch you earn ₹18/hour in Kukatpally. In Gachibowli riders earn about ₹X/hour (simulated city data). Try moving there." Your own better areas at the same time are preferred over city data.
 * **Weekly coach** – this week against last week: one win, one thing to fix, and a week-by-week history table.
@@ -30,13 +31,13 @@ Delivery partners and cab drivers on Swiggy, Zomato, Rapido and Ola see a headli
 * **Income Proof** – printable statement with SHA-256 tamper detection, a QR code and a registry check. It states plainly that it is **self-reported**, not platform- or bank-certified.
 * **Your data** – export/import a JSON backup, delete everything, all in the app.
 
-## Run it (no key, no signup)
+## Run it (no key needed)
 
 ```bash
 python server.py            # http://localhost:8080   (Python 3.9+, standard library only)
 ```
 
-Press **See a demo rider**. For the real upload path press **Add screenshots → Try sample screenshots**: the app draws three genuine test screenshots, runs OCR on them, and stages the result for review. Tap a sample to download it, then upload it through the file picker.
+Press **Create my account** (two different riders on two browsers show the separate dashboards), or **Demo rider** to explore with sample data. For the real upload path press **Add screenshots → Try sample screenshots**: the app draws three genuine test screenshots, runs OCR on them, and stages the result for review. Tap a sample to download it, then upload it through the file picker.
 
 Optional Claude vision: copy `.env.example` to `.env`, set `ANTHROPIC_API_KEY`, restart. The key stays on the server.
 
@@ -66,8 +67,8 @@ real pay per hour = cash remaining / online hours   (online hours include waitin
 
 ```bash
 node tests/engine.test.js                   # calculation engine, accuracy range, calibration, Ask intent detection in 4 languages, parser, duplicates, simulator
-python -m unittest discover -s tests        # server (19 tests): validation, k-anonymity, registry, static whitelist, rate limit, extraction + Ask flow against a mock model API
-python tools/smoke.py http://127.0.0.1:8080 # 23 checks against any running deployment
+python -m unittest discover -s tests        # server (36 tests): accounts, sessions, CSRF, lockout, user isolation, validation, k-anonymity, registry, static whitelist, rate limit, extraction + Ask flow against a mock model API
+python tools/smoke.py http://127.0.0.1:8080 # 33 checks against any running deployment (includes a register → save → logout → login → delete cycle)
 ```
 
 What the tests do **not** prove: accuracy of the real Claude model on real screenshots (the extraction flow is tested against a local mock of the model API), and real-world OCR accuracy on arbitrary app layouts. On the bundled sample screenshots on-device OCR recovered every order and amount in manual testing; one bonus digit was misread, which is exactly why the review step exists.
@@ -81,11 +82,12 @@ js/reader.js   Claude-vision client, Tesseract OCR fallback, parser, duplicate d
 js/ask.js      offline question understanding (intents + numbers, 4 languages)
 js/demo.js     synthetic rider month, simulated city data, sample screenshot renderer
 js/i18n.js     English / Hindi / Telugu / Tamil strings
-js/app.js      UI (light, high-contrast theme; 48 px touch targets; no horizontal scrolling at 390 px)
+js/app.js      UI (light, high-contrast theme; 48 px touch targets; no horizontal scrolling at 390 px), account sync
 server.py      static files (whitelist) + API, stdlib only
+accounts.py    users, sessions, per-rider data (SQLite, scrypt), stdlib only
 ```
 
-API: `GET /api/health` · `POST /api/extract` · `POST /api/ask` · `POST /api/statement`, `GET /api/statement/<id>` · `POST /api/contribute`, `GET /api/city`.
+API: `GET /api/health` · `POST /api/extract` · `POST /api/ask` · `POST /api/statement`, `GET /api/statement/<id>` · `POST /api/contribute`, `GET /api/city` · `POST /api/auth/register|login|logout` · `GET /api/me` · `PUT /api/me/data` · `POST /api/me/password` · `DELETE /api/me`.
 
 ## Security and privacy
 
@@ -96,6 +98,9 @@ API: `GET /api/health` · `POST /api/extract` · `POST /api/ask` · `POST /api/s
 * City sharing is opt-in and sends only platform, area, time-of-day and ₹/hour (plus a random anonymous id kept in the browser). Simulated data is never submitted.
 
 ## Honest limitations
+
+* **No SMS or email:** accounts are phone number + password and the number is not verified. A **forgotten password cannot be recovered** (the app says so at sign-up). A production version would add OTP verification and recovery. Account data is stored unencrypted in the server's SQLite file (`TRUEWAGE_DATA/truewage.db`): protect and back up that folder, and serve over HTTPS (set `TRUEWAGE_TRUST_PROXY=1` behind a proxy so the cookie is marked `Secure`).
+* Accounts were tested with automated tests, the smoke test and manual two-rider browser sessions on localhost, not under real load or on a real multi-device setup.
 
 * The income statement is rider-attested and tamper-evident. It is **not** platform-certified or bank-certified. The next step would be platform-signed exports or an Account-Aggregator-style consent flow.
 * A lender needs the registry (server mode) to detect a forged *code*; the static link only detects an *edited number*.

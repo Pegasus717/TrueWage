@@ -50,7 +50,7 @@ class T(unittest.TestCase):
 
     def post(self, body):
         c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
-        c.request("POST", "/api/extract", body=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
+        c.request("POST", "/api/extract", body=json.dumps(body).encode(), headers={"Content-Type": "application/json", "X-TW": "1"})
         r = c.getresponse(); data = json.loads(r.read()); c.close(); return r.status, data
 
     def test_extract_roundtrip(self):
@@ -66,7 +66,7 @@ class T(unittest.TestCase):
 
     def ask(self, body):
         c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
-        c.request("POST", "/api/ask", body=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
+        c.request("POST", "/api/ask", body=json.dumps(body).encode(), headers={"Content-Type": "application/json", "X-TW": "1"})
         r = c.getresponse(); data = json.loads(r.read()); c.close(); return r.status, data
 
     def test_ask_roundtrip_is_grounded(self):

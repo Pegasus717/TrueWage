@@ -16,7 +16,7 @@
   }
 
   async function extractWithAI(dataUrls) {
-    const r = await fetch('api/extract', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ images: dataUrls }) });
+    const r = await fetch('api/extract', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-TW': '1' }, body: JSON.stringify({ images: dataUrls }) });
     if (!r.ok) throw new Error('AI reader failed: ' + r.status);
     const j = await r.json();
     return (j.sessions || []).map((s, i) => normalizeSession(s, 'ai-' + i));

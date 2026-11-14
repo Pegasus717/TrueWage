@@ -7,9 +7,12 @@ base = (sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8080").rstrip("/
 fails = 0
 
 
-def call(method, path, body=None):
+def call(method, path, body=None, cookie=None):
     data = json.dumps(body).encode() if body is not None else None
-    req = urllib.request.Request(base + path, data=data, method=method, headers={"Content-Type": "application/json"} if data else {})
+    hdrs = {"Content-Type": "application/json", "X-TW": "1"} if (data or method in ("PUT", "DELETE")) else {}
+    if cookie:
+        hdrs["Cookie"] = cookie
+    req = urllib.request.Request(base + path, data=data, method=method, headers=hdrs)
     try:
         with urllib.request.urlopen(req, timeout=10) as r:
             raw = r.read()
@@ -47,5 +50,35 @@ j = json.loads(raw)
 check("city endpoint is k-anonymous", s == 200 and j["k"] == 20 and all(c["riders"] >= 20 for c in j["cells"]))
 check("ask fails honestly without a key or bad input", call("POST", "/api/ask", {"q": "hello", "lang": "en", "summary": {}})[0] in (400, 503))
 check("extract fails honestly without a key or bad input", call("POST", "/api/extract", {"images": []})[0] in (400, 503))
+
+# ---- accounts: register -> private data -> logout -> login -> delete (leaves nothing behind) ----
+import os, random
+check("anonymous /api/me is 401", call("GET", "/api/me")[0] == 401)
+try:
+    urllib.request.urlopen(urllib.request.Request(base + "/api/auth/login", data=b"{}", method="POST", headers={"Content-Type": "application/json"}), timeout=10)
+    nohdr = 200
+except urllib.error.HTTPError as e:
+    nohdr = e.code
+check("API write without X-TW header is refused (CSRF)", nohdr == 403)
+phone, pw = "9%09d" % random.randrange(10**9), "smoke-" + os.urandom(6).hex()
+s, raw, h = call("POST", "/api/auth/register", {"name": "Smoke Test", "phone": phone, "password": pw, "lang": "en"})
+ck = (h.get("Set-Cookie") or "").split(";")[0]
+flags = (h.get("Set-Cookie") or "")
+check("register sets HttpOnly SameSite cookie", s == 200 and "HttpOnly" in flags and "SameSite=Strict" in flags, flags)
+s, raw, _ = call("GET", "/api/me", cookie=ck)
+check("session works", s == 200 and json.loads(raw)["user"]["name"] == "Smoke Test")
+v = json.loads(raw)["version"]
+s, raw, _ = call("PUT", "/api/me/data", {"baseVersion": v, "data": {"sessions": [], "lang": "en"}}, cookie=ck)
+check("save private data", s == 200 and json.loads(raw)["version"] == v + 1)
+s, raw, _ = call("PUT", "/api/me/data", {"baseVersion": v, "data": {"sessions": []}}, cookie=ck)
+check("stale write is rejected (409)", s == 409)
+s, _, h = call("POST", "/api/auth/logout", {}, cookie=ck)
+check("logout", s == 200 and call("GET", "/api/me", cookie=ck)[0] == 401)
+check("wrong password is refused", call("POST", "/api/auth/login", {"phone": phone, "password": "wrong-password"})[0] == 401)
+s, raw, h = call("POST", "/api/auth/login", {"phone": phone, "password": pw})
+ck = (h.get("Set-Cookie") or "").split(";")[0]
+check("login returns saved data", s == 200 and json.loads(raw)["version"] == v + 1)
+s, _, _ = call("DELETE", "/api/me", {"password": pw}, cookie=ck)
+check("delete account", s == 200 and call("POST", "/api/auth/login", {"phone": phone, "password": pw})[0] == 401)
 print("\n%s" % ("ALL CHECKS PASSED" if not fails else "%d CHECK(S) FAILED" % fails))
 sys.exit(1 if fails else 0)

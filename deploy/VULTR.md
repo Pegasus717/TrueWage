@@ -2,7 +2,7 @@
 
 Status: **documented, not executed by the author.** The development machine had no Docker and no Vultr account, so these steps were not run end to end. The application itself (same `server.py`, same files) is tested locally, and `tools/smoke.py` is provided so you can verify a deployment in one command. Console menu names may differ slightly from Vultr's current UI.
 
-TrueWage needs very little: one small Linux VM, Python 3 or Docker, and (optionally) a domain for HTTPS. No database.
+TrueWage needs very little: one small Linux VM, Python 3 or Docker, and (optionally) a domain for HTTPS. The database is a single SQLite file inside the data folder (no separate DB server). **Use HTTPS for real riders**: passwords and session cookies must not travel over plain HTTP.
 
 ## 1. Create the server
 
@@ -56,7 +56,7 @@ From any machine with Python 3:
 python tools/smoke.py https://truewage.example.com     # or http://SERVER_IP:8080
 ```
 
-Expected: 23 `PASS` lines and `ALL CHECKS PASSED`. The script also prints whether Claude vision is on. Then open the site on a phone and press **See a demo rider**.
+Expected: 33 `PASS` lines and `ALL CHECKS PASSED` (it creates and deletes a throwaway test account). The script also prints whether Claude vision is on. Then open the site on a phone, press **Create my account** and add the sample screenshots, or press a **Demo rider** button.
 
 ## 4. Operate
 
@@ -64,11 +64,12 @@ Expected: 23 `PASS` lines and `ALL CHECKS PASSED`. The script also prints whethe
 |---|---|
 | Logs | `docker compose logs -f app` (or `journalctl -u truewage -f`) |
 | Update | `git pull && docker compose up -d --build` (or `git pull && systemctl restart truewage`) |
-| Back up registry + city contributions | `docker run --rm -v truewage_truewage-data:/data -v "$PWD":/b alpine tar czf /b/truewage-data.tgz -C /data .` (systemd: copy `/var/lib/truewage`) |
+| Back up accounts (`truewage.db`, `secret.key`), registry + city contributions (back up the whole folder; losing `secret.key` only changes anonymous contribution ids) | `docker run --rm -v truewage_truewage-data:/data -v "$PWD":/b alpine tar czf /b/truewage-data.tgz -C /data .` (systemd: copy `/var/lib/truewage`) |
 | Change API key | edit `.env`, then `docker compose up -d` (or `systemctl restart truewage`) |
 
 ## Notes
 
 * Without `ANTHROPIC_API_KEY` everything works; screenshots are read by on-device OCR in the visitor's browser.
-* The server stores only statement hashes/summaries and anonymous aggregate contributions in `TRUEWAGE_DATA` (`/data` in Docker). Screenshots are never stored.
+* The server stores rider accounts (name, phone, scrypt password hash, the rider's own computed data), statement hashes/summaries and anonymous aggregate contributions in `TRUEWAGE_DATA` (`/data` in Docker). Screenshots are never stored. Keep that folder private and backed up; there is no password recovery (no SMS/email).
+* Behind HTTPS set `TRUEWAGE_TRUST_PROXY=1` (cookie gets the `Secure` flag), or `TRUEWAGE_COOKIE_SECURE=1` to force it.
 * Keep `.env` out of git (it is in `.gitignore`). Do not publish the server's API key; if it leaks, rotate it in the Anthropic console.

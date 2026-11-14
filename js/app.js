@@ -23,6 +23,7 @@
     link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
     lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
     upload: '<path d="M12 16V4M7 9l5-5 5 5M4 20h16"/>',
+    user: '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-7 8-7s8 3 8 7"/>',
     image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M21 16l-5-5-8 8"/>',
     mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>'
   };
@@ -32,14 +33,19 @@
     sessions: [], profile: T.defaultProfile('petrol'), hashes: [], reader: null, lastBatch: [], shared: false,
     rider: { name: '', phone4: '' }, lang: 'en', report: null, tab: 'home', demo: false,
     day: null, goal: 800, simHour: null, oc: null, fairTarget: null, wi: { hours: {}, days: null, fuel: 0 }, pending: null,
-    insSeg: 'coach', city: 'Hyderabad', citySeg: 'map', advAll: false, fullCalc: false, sheet: null, vehicleOk: false, tourDone: false, big: false, shifts: [], shift: null, meas: null
+    insSeg: 'coach', city: 'Hyderabad', citySeg: 'map', advAll: false, fullCalc: false, sheet: null, vehicleOk: false, tourDone: false, big: false, shifts: [], shift: null, meas: null, user: null, ver: 0, authMode: 'register'
   };
-  const ui = { busy: false, msg: null, thumbs: null, open: new Set(), chat: [], ai: false, listening: false, thinking: false };
+  const ui = { busy: false, msg: null, thumbs: null, open: new Set(), chat: [], ai: false, listening: false, thinking: false, sync: 'idle' };
 
   /* ---------- persistence (best-effort; the app works without it) ---------- */
   const KEY = 'truewage.v3';
   const PERSIST = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shared', 'rider', 'lang', 'demo', 'goal', 'vehicleOk', 'tourDone', 'big', 'shifts', 'shift', 'city'];
-  function save() { try { const o = {}; PERSIST.forEach(k => o[k] = S[k]); localStorage.setItem(KEY, JSON.stringify(o)); } catch (e) { /* private mode */ } }
+const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shared', 'rider', 'lang', 'demo', 'goal', 'vehicleOk', 'tourDone', 'big', 'shifts', 'city'];
+  const LOCALKEY = () => (S.user ? 'truewage.u' + S.user.id : KEY);
+  function save() {
+    try { const o = {}; PERSIST.forEach(k => o[k] = S[k]); localStorage.setItem(LOCALKEY(), JSON.stringify(o)); } catch (e) { /* private mode */ }
+    if (S.user) scheduleSync();
+  }
   function load() {
     try {
       const raw = localStorage.getItem(KEY), j = JSON.parse(raw || 'null');
@@ -67,7 +73,7 @@
     $('#tabbar').innerHTML = NAV.map(([id, k, i]) => `<button data-tab="${id}" ${S.tab === id ? 'aria-current="page"' : ''}>${ic(i)}<span>${t(k)}</span></button>`).join('');
     $$('[data-tab]').forEach(b => b.onclick = () => setTab(b.dataset.tab));
   }
-  function applyStatic() { $$('[data-i18n]').forEach(e => e.textContent = t(e.dataset.i18n)); $('#btn-set').setAttribute('aria-label', t('set_h')); document.documentElement.lang = S.lang; document.documentElement.classList.toggle('big', !!S.big); }
+  function applyStatic() { $$('[data-i18n]').forEach(e => e.textContent = t(e.dataset.i18n)); $('#btn-acct').setAttribute('aria-label', t('au_account')); acctBtn(); document.documentElement.lang = S.lang; document.documentElement.classList.toggle('big', !!S.big); }
   const RENDER = { home: () => renderHome(), check: () => renderCheck(), insights: () => renderInsights(), city: () => renderCity(), proof: () => renderProof() };
   function setTab(name, noScroll) {
     S.tab = name;
@@ -160,14 +166,21 @@
       <g transform="translate(176 52)"><circle cx="8" cy="30" r="9" fill="none" stroke="var(--ink)" stroke-width="3"/><circle cx="40" cy="30" r="9" fill="none" stroke="var(--ink)" stroke-width="3"/><path d="M8 30l12-14h14l6 14M20 16l-4-8h-6" fill="none" stroke="var(--ink)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><rect x="22" y="2" width="16" height="14" rx="3" fill="var(--mark)" stroke="var(--ink)" stroke-width="2.5"/></g>
     </svg>`;
   }
+  function renderWelcome(v) {
+    v.innerHTML = `<div class="welcome stack"><div><h1 class="h2" style="font-size:32px">${esc(t('au_welcome', { name: S.user.name }))}</h1><p class="muted" style="margin-top:6px">${t('au_welcome_p')}</p></div>
+      <button class="btn lg" id="w-add">${ic('upload')}${t('add_shots')}</button>${shiftCardHTML(null)}
+      <section class="card"><h3 class="h3" style="margin-bottom:10px">${t('au_demo_h')}</h3><div class="rows"><button class="btn alt" id="w-hyd">${t('dm_hyd')}</button><button class="btn alt" id="w-blr">${t('dm_blr')}</button></div></section></div>`;
+    $('#w-add', v).onclick = () => openSheet('import'); $('#w-hyd', v).onclick = () => loadDemo('Hyderabad'); $('#w-blr', v).onclick = () => loadDemo('Bengaluru'); bindShift(v);
+  }
   function renderLanding(v) {
+    if (S.user) return renderWelcome(v);
     const ex = exampleReport(), r = T.dayReceipt(ex, 'period');
     const langs = Object.keys(I18N.L).map(k => `<button data-l="${k}" aria-pressed="${S.lang === k}">${I18N.L[k]._name}</button>`).join('');
     v.innerHTML = `
       <div class="landing hero"><div>
           <h1>${t('hero_h')}</h1><p class="lead">${t('hero_p')}</p>
           <div class="langs"><div class="eyebrow">${t('pick_lang')}</div><div class="seg" id="lseg">${langs}</div></div>
-          <div class="cta"><button class="btn lg" id="l-add">${ic('upload')}${t('add_shots')}</button></div><div class="cta" style="margin-top:10px"><button class="btn alt" id="l-demo">${t('dm_hyd')}</button><button class="btn alt" id="l-demo2">${t('dm_blr')}</button></div></div>
+          <div class="cta"><button class="btn lg" id="l-signup">${t('au_cta')}</button><button class="btn lg alt" id="l-login">${t('au_login')}</button></div><div class="eyebrow" style="margin:16px 0 6px">${t('au_demo_h')}</div><div class="cta"><button class="btn alt" id="l-demo">${t('dm_hyd')}</button><button class="btn alt" id="l-demo2">${t('dm_blr')}</button></div><p style="margin-top:12px"><button class="link" id="l-add">${t('au_guest')}</button></p></div>
         <div>${routeArt()}${smallReceipt(r, t('period_all'), true)}</div></div>
       <div class="steps">
         <div><span class="n">1</span><div><h3>${t('step_1')}</h3><p>${t('st1_p')}</p></div></div>
@@ -175,7 +188,7 @@
         <div><span class="n">3</span><div><h3>${t('step_3')}</h3><p>${t('st3_p')}</p></div></div></div>`;
     $$('#lseg button', v).forEach(b => b.onclick = () => changeLang(b.dataset.l));
     v.insertAdjacentHTML('beforeend', `<div style="margin-top:28px;max-width:560px">${shiftCardHTML(null)}</div>`); bindShift(v);
-    $('#l-add', v).onclick = () => openSheet('import'); $('#l-demo', v).onclick = () => loadDemo('Hyderabad'); $('#l-demo2', v).onclick = () => loadDemo('Bengaluru');
+    $('#l-add', v).onclick = () => openSheet('import'); $('#l-signup', v).onclick = () => { S.authMode = 'register'; openSheet('auth'); }; $('#l-login', v).onclick = () => { S.authMode = 'login'; openSheet('auth'); }; $('#l-demo', v).onclick = () => loadDemo('Hyderabad'); $('#l-demo2', v).onclick = () => loadDemo('Bengaluru');
   }
 
   const HOURS_NOW = () => (S.simHour != null ? S.simHour : new Date().getHours());
@@ -579,7 +592,7 @@
       sb.onclick = async () => {
         const cells = rep.combos.filter(x => x.hours >= 1).map(x => ({ platform: x.platform, zone: x.zone, daypart: x.daypart, perHr: Math.round(x.perHr * 10) / 10, hours: Math.round(x.hours * 10) / 10 }));
         try {
-          const r = await fetch('api/contribute', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rid: anonId(), cells, demo: !!S.demo }) });
+          const r = await fetch('api/contribute', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-TW': '1' }, body: JSON.stringify({ rid: anonId(), cells, demo: !!S.demo }) });
           if (!r.ok) throw new Error((await r.json()).error || r.status);
           S.shared = true; save(); toast(t('city_shared')); fetchLive().then(setLive); sb.textContent = t('city_shared'); sb.disabled = true;
         } catch (e) { toast(t('share_fail') + ' (' + e.message + ')'); }
@@ -614,7 +627,7 @@
     st.evidence = { count: S.hashes.length, root: evRoot ? evRoot.slice(0, 16) : null, demo: !!S.demo };
     const hash = await R.sha256Text(JSON.stringify(st)), id = 'TW-' + hash.slice(0, 12).toUpperCase();
     let registered = false;
-    try { const r = await fetch('api/statement', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, hash, data: st }) }); registered = r.ok; } catch (e) { /* static hosting */ }
+    try { const r = await fetch('api/statement', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-TW': '1' }, body: JSON.stringify({ id, hash, data: st }) }); registered = r.ok; } catch (e) { /* static hosting */ }
     const base = location.href.split('#')[0], longUrl = base + '#verify=' + b64u(JSON.stringify({ d: st, h: hash })), url = registered ? base + '#verify=' + id : longUrl;
     const tt = st.totals, f = n => inr(n);
     $('#paper').innerHTML = `<div class="paper">
@@ -685,6 +698,157 @@
     const file = new File([blob], 'truewage-receipt.png', { type: 'image/png' });
     if (navigator.canShare && navigator.canShare({ files: [file] })) { try { await navigator.share({ files: [file], text: 'The apps showed ' + inr(r.appShown) + '. I really kept ' + inr(r.net) + '. #TrueWage' }); return; } catch (e) { /* cancelled */ } }
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'truewage-receipt.png'; a.click(); toast('Receipt image saved');
+  }
+
+  /* ---------- ACCOUNTS: sign-up, login, per-rider private data ---------- */
+  async function api(method, path, body) {
+    const r = await fetch(path, { method, credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-TW': '1' }, body: body === undefined ? undefined : JSON.stringify(body) });
+    let j = null; try { j = await r.json(); } catch (e) { /* no body */ }
+    if (!r.ok) { const err = new Error((j && j.error) || 'http_' + r.status); err.status = r.status; err.code = j && j.error; err.retry = +r.headers.get('Retry-After') || 0; throw err; }
+    return j;
+  }
+  const pickSync = () => { const o = {}; SYNC_KEYS.forEach(k => o[k] = S[k]); return o; };
+  let syncTimer = null, pushing = false;
+  function scheduleSync() { ui.sync = 'saving'; clearTimeout(syncTimer); syncTimer = setTimeout(pushData, 800); updateSyncUI(); }
+  async function pushData() {
+    if (!S.user || pushing) return;
+    pushing = true;
+    try { const j = await api('PUT', 'api/me/data', { data: pickSync(), baseVersion: S.ver }); S.ver = j.version; ui.sync = 'saved'; }
+    catch (e) {
+      if (e.status === 409) { try { await pullMerge(); } catch (e2) { ui.sync = 'offline'; } }
+      else if (e.status === 401) { sessionExpired(); }
+      else ui.sync = 'offline';
+    } finally { pushing = false; updateSyncUI(); }
+  }
+  function unionInto(snap) {
+    const have = new Set(S.sessions.map(x => x.id)), haveS = new Set(S.shifts.map(x => x.id));
+    (snap.sessions || []).forEach(x => { if (!have.has(x.id)) S.sessions.push(x); });
+    (snap.shifts || []).forEach(x => { if (!haveS.has(x.id)) S.shifts.push(x); });
+    S.hashes = Array.from(new Set(S.hashes.concat(snap.hashes || [])));
+  }
+  async function pullMerge() {      // another device saved first: keep both sets of records
+    const j = await api('GET', 'api/me'); const mine = pickSync();
+    adoptServer(j.data); unionInto(mine);                       // records: keep both devices' entries
+    ['profile', 'goal', 'lang', 'city', 'big', 'vehicleOk', 'tourDone', 'shared', 'demo', 'rider', 'reader', 'lastBatch'].forEach(k => { if (mine[k] !== undefined) S[k] = mine[k]; });   // settings: this device's latest choice wins
+    S.ver = j.version; recompute();
+  }
+  function adoptServer(d) {
+    d = d || {};
+    SYNC_KEYS.forEach(k => { if (d[k] !== undefined) S[k] = d[k]; });
+    ['sessions', 'shifts', 'hashes', 'lastBatch'].forEach(k => { if (!Array.isArray(S[k])) S[k] = []; });
+    S.profile = Object.assign(T.defaultProfile('petrol'), S.profile || {});
+    if (!S.rider || typeof S.rider !== 'object') S.rider = { name: '', phone4: '' };
+  }
+  function freshState() {
+    Object.assign(S, { sessions: [], profile: T.defaultProfile('petrol'), hashes: [], reader: null, lastBatch: [], shared: false, rider: { name: '', phone4: '' }, demo: false, goal: 800, vehicleOk: false, tourDone: false, shifts: [], shift: null,
+      city: 'Hyderabad', report: null, meas: null, day: null, oc: null, pending: null, simHour: null, fairTarget: null, fullCalc: false, advAll: false, insSeg: 'coach', citySeg: 'map', planSeg: 'order' });
+    resetWi(); ui.chat = []; ui.thumbs = null; ui.msg = null; ui.open = new Set();
+  }
+  function afterAuth(user, data, version, opts) {
+    opts = opts || {};
+    stopWatch();
+    const guestHas = S.sessions.length > 0 || S.shifts.length > 0, snap = pickSync();
+    const serverHas = !!(data && ((data.sessions && data.sessions.length) || (data.shifts && data.shifts.length)));
+    S.user = user; S.ver = version || 0; S.shift = null; let merged = false;
+    try { localStorage.setItem('truewage.last', JSON.stringify({ id: user.id, name: user.name, phone4: user.phone4 })); } catch (e) { /* ignore */ }
+    if (serverHas) { adoptServer(data); if (guestHas) { unionInto(snap); merged = true; } }
+    else if (guestHas) merged = true;                          // this phone's guest data becomes the account's first data
+    else adoptServer(data);
+    if (!S.rider.name) S.rider = { name: user.name, phone4: user.phone4 };
+    try { const c = JSON.parse(localStorage.getItem('truewage.u' + user.id) || 'null'); if (c && c.shift) S.shift = c.shift; } catch (e) { /* ignore */ }
+    if (merged) { try { localStorage.removeItem(KEY); } catch (e) { /* ignore */ } if (!opts.silent) toast(t('au_merged')); }
+    I18N.setLang(S.lang); const sel = $('#lang'); if (sel) sel.value = S.lang; applyStatic();
+    recompute(); ui.sync = 'saved'; acctBtn(); if (S.shift) { beginWatch(); startTicker(); }
+    if (!opts.silent) { closeSheet(); setTab('home'); } else rerender();
+    scheduleSync();
+  }
+  function sessionExpired() { logoutLocal(); toast(t('au_e_bad_credentials')); }
+  function logoutLocal() {
+    clearTimeout(syncTimer); stopWatch(); const lang = S.lang, big = S.big;
+    S.user = null; S.ver = 0; freshState(); S.lang = lang; S.big = big; load(); acctBtn(); applyStatic();
+    try { localStorage.removeItem('truewage.last'); } catch (e) { /* ignore */ }
+    if (S.sessions.length) recompute();
+    closeSheet(); setTab('home');
+  }
+  async function doLogout() { try { await api('POST', 'api/auth/logout'); } catch (e) { /* offline: still sign out here */ } logoutLocal(); }
+  function acctBtn() {
+    const b = $('#btn-acct'); if (!b) return;
+    b.innerHTML = S.user ? `<span class="avatar" aria-hidden="true">${esc((S.user.name || '?').trim().charAt(0).toUpperCase())}</span>` : ic('user');
+    b.title = S.user ? t('au_signed_as', { name: S.user.name }) : t('au_login');
+  }
+  function updateSyncUI() { const el = $('#sync-state'); if (el) el.textContent = ui.sync === 'saving' ? t('au_syncing') : ui.sync === 'offline' ? t('au_offline') : t('au_synced'); const ab = $('#btn-acct'); if (ab) ab.classList.toggle('off', ui.sync === 'offline'); }
+  async function boot() {
+    try {
+      const j = await api('GET', 'api/me');
+      afterAuth(j.user, j.data, j.version, { silent: true });
+    } catch (e) {
+      if (e.status === 401) { try { localStorage.removeItem('truewage.last'); } catch (x) { /* ignore */ } return; }
+      try {   // server unreachable: open the last signed-in rider's cached dashboard, read-only sync resumes when online
+        const last = JSON.parse(localStorage.getItem('truewage.last') || 'null'), c = last && JSON.parse(localStorage.getItem('truewage.u' + last.id) || 'null');
+        if (last && c) { S.user = last; PERSIST.forEach(k => { if (c[k] !== undefined) S[k] = c[k]; }); ui.sync = 'offline'; recompute(); acctBtn(); rerender(); }
+      } catch (x) { /* ignore */ }
+    }
+  }
+  const authErr = e => {
+    if (e.code === 'locked') return t('au_e_locked', { m: Math.max(1, Math.ceil((e.retry || 60) / 60)) });
+    const map = { bad_phone: 'au_e_bad_phone', bad_name: 'au_e_bad_name', bad_password: 'au_e_bad_password', phone_exists: 'au_e_phone_exists', bad_credentials: 'au_e_bad_credentials' };
+    if (map[e.code]) return t(map[e.code]);
+    return e.status ? t('au_e_generic') : t('au_e_net');
+  };
+  function authSheet(b) {
+    const reg = S.authMode === 'register';
+    b.innerHTML = `${seg('amode', [['register', t('au_register')], ['login', t('au_login')]], S.authMode)}
+      <form id="authform" novalidate style="margin-top:16px" class="stack">
+        ${reg ? `<div class="field"><label for="au-name">${t('au_name')}</label><input id="au-name" autocomplete="name" maxlength="60"></div>` : ''}
+        <div class="field"><label for="au-phone">${t('au_phone')}</label><input id="au-phone" type="tel" inputmode="numeric" autocomplete="tel" maxlength="14" placeholder="98XXXXXXXX"></div>
+        <div class="field"><label for="au-pw">${t('au_password')}</label><div class="pwwrap"><input id="au-pw" type="password" autocomplete="${reg ? 'new-password' : 'current-password'}" maxlength="128"><button type="button" class="link" id="au-show">${t('au_show')}</button></div>${reg ? `<small class="note">${t('au_pw_hint')}</small>` : ''}</div>
+        <div class="status err" id="au-err" role="alert" hidden></div>
+        <button class="btn lg block" id="au-go" type="submit">${t(reg ? 'au_register' : 'au_login')}</button></form>
+      <p class="note" style="margin-top:14px">${t('au_privacy')}</p>
+      <div class="center"><button class="link" id="au-guest">${t('au_guest')}</button><p class="note">${t('au_guest_note')}</p></div>`;
+    $$('#amode button', b).forEach(x => x.onclick = () => { S.authMode = x.dataset.s; renderSheet(); });
+    $('#au-show', b).onclick = () => { const i = $('#au-pw', b), on = i.type === 'password'; i.type = on ? 'text' : 'password'; $('#au-show', b).textContent = t(on ? 'au_hide' : 'au_show'); };
+    $('#au-guest', b).onclick = () => { closeSheet(); };
+    $('#authform', b).onsubmit = async e => {
+      e.preventDefault(); const err = $('#au-err', b), go = $('#au-go', b); err.hidden = true;
+      const phone = $('#au-phone', b).value.replace(/[\s\-()]/g, '').replace(/^(\+91|91|0)(?=\d{10}$)/, ''), pw = $('#au-pw', b).value, name = reg ? $('#au-name', b).value.trim() : '';
+      const bad = reg && !name ? 'au_e_bad_name' : !/^[6-9]\d{9}$/.test(phone) ? 'au_e_bad_phone' : (reg && pw.length < 8) || !pw ? 'au_e_bad_password' : null;
+      if (bad) { err.textContent = t(bad); err.hidden = false; return; }
+      go.disabled = true;
+      try {
+        const j = reg ? await api('POST', 'api/auth/register', { name, phone, password: pw, lang: S.lang }) : await api('POST', 'api/auth/login', { phone, password: pw });
+        afterAuth(j.user, j.data || {}, j.version || 0);
+      } catch (e2) { err.textContent = authErr(e2); err.hidden = false; go.disabled = false; }
+    };
+  }
+  function accountSheet(b) {
+    if (!S.user) {
+      b.innerHTML = `<div class="card"><div class="h3">${t('au_guest_h')}</div><p class="note" style="margin-top:4px">${t('au_guest_note')}</p>
+        <div class="menu"><button class="btn block" id="ac-reg">${t('au_register')}</button><button class="btn alt block" id="ac-login">${t('au_login')}</button></div></div>
+        <div class="menu" style="margin-top:12px"><button class="btn alt block" id="ac-set">${t('set_h')}</button></div>`;
+      $('#ac-reg', b).onclick = () => { S.authMode = 'register'; openSheet('auth'); }; $('#ac-login', b).onclick = () => { S.authMode = 'login'; openSheet('auth'); };
+      $('#ac-set', b).onclick = () => openSheet('data'); return;
+    }
+    b.innerHTML = `<div class="card acct"><span class="avatar big" aria-hidden="true">${esc(S.user.name.trim().charAt(0).toUpperCase())}</span><div><div class="h3">${esc(S.user.name)}</div><div class="note">XXXXXX${esc(S.user.phone4)}</div><div class="note" id="sync-state"></div></div></div>
+      <div class="menu" style="margin-top:12px"><button class="btn alt block" id="ac-set">${t('set_h')}</button><button class="btn alt block" id="ac-pw">${t('au_pw_change')}</button><button class="btn alt block" id="ac-out">${t('au_logout')}</button></div>
+      <div id="ac-form"></div>
+      <div class="menu" style="margin-top:22px"><button class="btn alt block danger" id="ac-del">${t('au_delete')}</button></div>`;
+    updateSyncUI();
+    $('#ac-set', b).onclick = () => openSheet('data'); $('#ac-out', b).onclick = doLogout;
+    const form = $('#ac-form', b);
+    $('#ac-pw', b).onclick = () => {
+      form.innerHTML = `<form class="stack card" style="margin-top:12px" id="pwform"><div class="field"><label for="pw-old">${t('au_pw_old')}</label><input id="pw-old" type="password" autocomplete="current-password"></div>
+        <div class="field"><label for="pw-new">${t('au_pw_new')}</label><input id="pw-new" type="password" autocomplete="new-password"><small class="note">${t('au_pw_hint')}</small></div><div class="status err" id="pw-err" hidden></div><button class="btn block" type="submit">${t('au_pw_change')}</button></form>`;
+      $('#pwform', form).onsubmit = async e => { e.preventDefault(); const er = $('#pw-err', form); er.hidden = true;
+        try { await api('POST', 'api/me/password', { old: $('#pw-old', form).value, new: $('#pw-new', form).value }); form.innerHTML = `<div class="status">${esc(t('au_pw_done'))}</div>`; } catch (x) { er.textContent = authErr(x); er.hidden = false; } };
+    };
+    $('#ac-del', b).onclick = () => {
+      form.innerHTML = `<form class="stack card" style="margin-top:12px;border-color:var(--lost)" id="delform"><p>${esc(t('au_delete_q'))}</p><div class="field"><label for="del-pw">${t('au_password')}</label><input id="del-pw" type="password" autocomplete="current-password"></div>
+        <div class="status err" id="del-err" hidden></div><button class="btn block danger" type="submit">${t('au_delete')}</button></form>`;
+      $('#delform', form).onsubmit = async e => { e.preventDefault(); const er = $('#del-err', form); er.hidden = true;
+        try { await api('DELETE', 'api/me', { password: $('#del-pw', form).value }); const id = S.user.id; try { localStorage.removeItem('truewage.u' + id); } catch (x) { /* ignore */ } logoutLocal(); toast(t('au_deleted')); }
+        catch (x) { er.textContent = authErr(x); er.hidden = false; } };
+    };
   }
 
   /* ---------- SHIFT TRACKER: the rider's own measured hours and distance ---------- */
@@ -804,7 +968,7 @@
     const det = TWAsk.detect(q); let text = null, src = 'off', note = null;
     if (ui.ai && S.report && det.intent !== 'order') {
       try {
-        const res = await fetch('api/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ q, lang: S.lang, summary: askSummary() }) });
+        const res = await fetch('api/ask', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-TW': '1' }, body: JSON.stringify({ q, lang: S.lang, summary: askSummary() }) });
         if (res.ok) { text = (await res.json()).answer; src = 'ai'; } else note = t('ask_unavail');
       } catch (e) { note = t('ask_unavail'); }
     }
@@ -837,13 +1001,13 @@
   }
 
   /* ---------- sheet: add screenshots (pick -> auto-read -> confirm), costs, data ---------- */
-  function openSheet(kind) { S.sheet = kind || 'import'; $('#sheet').hidden = false; document.body.style.overflow = 'hidden'; renderSheet(); syncFab(); if (S.sheet !== 'ask') $('#sheet-x').focus(); }
+  function openSheet(kind) { S.sheet = kind || 'import'; $('#sheet').hidden = false; document.body.style.overflow = 'hidden'; renderSheet(); syncFab(); if (S.sheet !== 'ask' && S.sheet !== 'auth') $('#sheet-x').focus(); }
   function closeSheet() { const was = S.sheet; S.sheet = null; $('#sheet').hidden = true; document.body.style.overflow = ''; if ('speechSynthesis' in window) speechSynthesis.cancel(); if (was === 'costs' || was === 'data') rerender(); syncFab(); }
   const syncFab = () => { const f = $('#fab'); if (f) f.hidden = !S.report || !!S.sheet; };
   function renderSheet() {
     const b = $('#sheet-body');
-    $('#sheet-t').textContent = S.sheet === 'costs' ? t('costs_h') : S.sheet === 'data' ? t('set_h') : S.sheet === 'ask' ? t('ask_h') : t('add_shots');
-    if (S.sheet === 'costs') costsSheet(b); else if (S.sheet === 'data') dataSheet(b); else if (S.sheet === 'ask') askSheet(b); else importSheet(b);
+    $('#sheet-t').textContent = S.sheet === 'costs' ? t('costs_h') : S.sheet === 'data' ? t('set_h') : S.sheet === 'ask' ? t('ask_h') : S.sheet === 'auth' ? t(S.authMode === 'register' ? 'au_register' : 'au_login') : S.sheet === 'account' ? t('au_account') : t('add_shots');
+    if (S.sheet === 'costs') costsSheet(b); else if (S.sheet === 'data') dataSheet(b); else if (S.sheet === 'ask') askSheet(b); else if (S.sheet === 'auth') authSheet(b); else if (S.sheet === 'account') accountSheet(b); else importSheet(b);
   }
   function costsSheet(b) {
     b.innerHTML = `<div class="grid2">${costsHTML()}</div><p class="note" style="margin-top:10px">${t('cal_help')}</p>${S.meas && S.meas.reliable ? `<p class="note" style="margin-top:8px"><span class="pill">${t('sh_badge')}</span> ${esc(t('sh_measured', { f: S.meas.factor.toFixed(2), n: S.meas.pairs }))}</p>` : ''}<div class="center"><button class="btn lg" id="c-done">${t('done')}</button></div>`;
@@ -1043,7 +1207,7 @@
     const sel = $('#lang'); sel.innerHTML = Object.keys(I18N.L).map(k => `<option value="${k}" ${k === S.lang ? 'selected' : ''}>${I18N.L[k]._name}</option>`).join('');
     sel.onchange = () => changeLang(sel.value);
     $('#logo').onclick = e => { e.preventDefault(); setTab('home'); };
-    $('#btn-add').onclick = () => openSheet('import'); $('#btn-set').onclick = () => openSheet('data'); $('#sheet-x').onclick = closeSheet;
+    $('#btn-add').onclick = () => openSheet('import'); $('#btn-acct').onclick = () => openSheet('account'); $('#sheet-x').onclick = closeSheet;
     $('#sheet').addEventListener('click', e => { if (e.target.id === 'sheet') closeSheet(); });
     document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#sheet').hidden) closeSheet(); });
     $('#file').onchange = e => { const fl = Array.from(e.target.files); e.target.value = ''; handleFiles(fl); };
@@ -1057,7 +1221,9 @@
     window.addEventListener('hashchange', () => { if (location.hash.startsWith('#verify=')) setTab('proof'); });
     if (S.shift) { beginWatch(); startTicker(); }
     setTab(location.hash.startsWith('#verify=') ? 'proof' : 'home');
-    window.TWApp = { shiftStart, shiftStop, S, ui, loadDemo, setTab, openSheet, closeSheet, handleFiles, trySamples, sendAsk, offlineAnswer, askSummary };
+    window.addEventListener('online', () => { if (S.user) pushData(); });
+    boot();
+    window.TWApp = { api, boot, doLogout, afterAuth, pushData, shiftStart, shiftStop, S, ui, loadDemo, setTab, openSheet, closeSheet, handleFiles, trySamples, sendAsk, offlineAnswer, askSummary };
   }
   init();
 })();

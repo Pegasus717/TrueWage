@@ -3,6 +3,7 @@
 
   * Serves the static app (index.html, css/, js/ only: nothing else on disk is reachable).
   * POST /api/extract      reads earnings screenshots with Claude vision (needs ANTHROPIC_API_KEY)
+  * /api/auth/*, /api/me   per-rider accounts: register, login, logout, private data sync, password change, account deletion (see accounts.py)
   * POST /api/ask          answers a rider's question from THEIR computed numbers with Claude (needs ANTHROPIC_API_KEY)
   * POST /api/statement    registers an income-statement hash;  GET /api/statement/<id> verifies it
   * POST /api/contribute   accepts an anonymous, aggregated pay contribution;  GET /api/city returns k-anonymous results
@@ -19,6 +20,8 @@ Screenshots are forwarded to the model API and are never written to disk. The AP
 sent to the browser or written to logs.
 """
 import base64, binascii, json, os, re, sys, threading, time, urllib.error, urllib.request
+from http.cookies import SimpleCookie
+from urllib.parse import urlparse
 from collections import defaultdict, deque
 from datetime import date
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -66,7 +69,7 @@ show the same app and day. Never invent orders that are not visible. If the imag
 
 _lock = threading.Lock()
 _hits = defaultdict(deque)
-LIMITS = {"extract": (20, 3600), "statement": (60, 3600), "contribute": (30, 3600), "ask": (60, 3600)}
+LIMITS = {"extract": (20, 3600), "statement": (60, 3600), "contribute": (30, 3600), "ask": (60, 3600), "register": (60, 3600), "data": (400, 3600)}
 
 
 def rate_ok(bucket, ip):
@@ -101,6 +104,9 @@ def write_json_atomic(path, obj):
     os.replace(tmp, path)
 
 
+import accounts  # noqa: E402  (per-rider login and private data)
+
+accounts.init(DATA_DIR)
 REGISTRY = os.path.join(DATA_DIR, "registry.json")
 CONTRIB = os.path.join(DATA_DIR, "contributions.json")
 
@@ -297,16 +303,87 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Permissions-Policy", "camera=(), microphone=(self), geolocation=(self)")
         super().end_headers()
 
-    def _send(self, code, data, ctype, cache="no-store"):
+    def _send(self, code, data, ctype, cache="no-store", headers=None):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", cache)
+        for k, v in (headers or {}).items():
+            self.send_header(k, v)
         self.end_headers()
         self.wfile.write(data)
 
-    def _json(self, code, obj):
-        self._send(code, json.dumps(obj).encode(), "application/json")
+    def _json(self, code, obj, headers=None):
+        self._send(code, json.dumps(obj).encode(), "application/json", headers=headers)
+
+    # ---- sessions and CSRF ----
+    def _token(self):
+        try:
+            m = SimpleCookie(self.headers.get("Cookie", "")).get("tw_sid")
+            return m.value if m else None
+        except Exception:
+            return None
+
+    def _user(self):
+        return accounts.user_from_token(self._token())
+
+    def _secure(self):
+        return os.environ.get("TRUEWAGE_COOKIE_SECURE") == "1" or (TRUST_PROXY and self.headers.get("X-Forwarded-Proto") == "https")
+
+    def _cookie(self, token, clear=False):
+        parts = ["tw_sid=%s" % ("" if clear else token), "Path=/", "HttpOnly", "SameSite=Strict", "Max-Age=%d" % (0 if clear else accounts.SESSION_DAYS * 86400)]
+        if self._secure():
+            parts.append("Secure")
+        return {"Set-Cookie": "; ".join(parts)}
+
+    def _csrf_ok(self):
+        """State-changing API calls must carry a custom header (a cross-site page cannot send one without CORS, which we never enable)
+        and, when the browser sends an Origin, it must be this site."""
+        if self.headers.get("X-TW") != "1":
+            return False
+        origin = self.headers.get("Origin")
+        return not origin or urlparse(origin).netloc == self.headers.get("Host", "")
+
+    def _auth_routes(self, method, path, ip):
+        """Returns True when the request was handled."""
+        if method == "POST" and path == "/api/auth/register":
+            if not rate_ok("register", ip):
+                self._json(429, {"error": "too_many_requests"}); return True
+            b = self._body(4096)
+            user, token = accounts.register(b.get("name"), b.get("phone"), b.get("password"), b.get("lang"))
+            self._json(200, {"user": accounts.public(user)}, headers=self._cookie(token)); return True
+        if method == "POST" and path == "/api/auth/login":
+            b = self._body(4096)
+            user, token = accounts.login(b.get("phone"), b.get("password"), ip)
+            data, version = accounts.get_data(user["id"])
+            self._json(200, {"user": accounts.public(user), "data": data, "version": version}, headers=self._cookie(token)); return True
+        if method == "POST" and path == "/api/auth/logout":
+            accounts.logout(self._token())
+            self._json(200, {"ok": True}, headers=self._cookie("", clear=True)); return True
+        if path.startswith("/api/me") or path.startswith("/api/auth"):
+            user = self._user()
+            if not user:
+                self._json(401, {"error": "not_signed_in"}); return True
+            if method == "PUT" and path == "/api/me/data":
+                if not rate_ok("data", "u%d" % user["id"]):
+                    self._json(429, {"error": "too_many_requests"}); return True
+                b = self._body(accounts.MAX_DATA_BYTES + 4096)
+                bv = b.get("baseVersion")
+                if not isinstance(bv, int) or isinstance(bv, bool):
+                    raise accounts.AuthError("bad_data")
+                version = accounts.put_data(user["id"], b.get("data"), bv)
+                if isinstance(b.get("data"), dict) and b["data"].get("lang") in accounts.LANGS:
+                    accounts.set_lang(user["id"], b["data"]["lang"])
+                self._json(200, {"version": version}); return True
+            if method == "POST" and path == "/api/me/password":
+                b = self._body(4096)
+                accounts.change_password(user["id"], b.get("old"), b.get("new"), self._token())
+                self._json(200, {"ok": True}); return True
+            if method == "DELETE" and path == "/api/me":
+                b = self._body(4096)
+                accounts.delete_account(user["id"], b.get("password"))
+                self._json(200, {"ok": True}, headers=self._cookie("", clear=True)); return True
+        return False
 
     def _body(self, limit):
         try:
@@ -323,6 +400,12 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split("?", 1)[0]
         if path == "/api/health":
             return self._json(200, {"ok": True, "ai": bool(API_KEY), "model": MODEL if API_KEY else None})
+        if path == "/api/me":
+            user = self._user()
+            if not user:
+                return self._json(401, {"error": "not_signed_in"})
+            data, version = accounts.get_data(user["id"])
+            return self._json(200, {"user": accounts.public(user), "data": data, "version": version})
         if path == "/api/city":
             return self._json(200, city_summary())
         if path.startswith("/api/statement/"):
@@ -344,7 +427,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path, ip = self.path.split("?", 1)[0], self.client_ip()
+        if path.startswith("/api/") and not self._csrf_ok():
+            return self._json(403, {"error": "csrf"})
         try:
+            if self._auth_routes("POST", path, ip):
+                return
             if path == "/api/extract":
                 if not API_KEY:
                     return self._json(503, {"error": "Claude vision is not configured on this server"})
@@ -381,6 +468,9 @@ class Handler(BaseHTTPRequestHandler):
                 if body.get("demo"):
                     return self._json(200, {"ok": True, "stored": False, "reason": "simulated sample data is never counted"})
                 rid = str(body.get("rid", ""))
+                user = self._user()
+                if user:
+                    rid = accounts.rider_id(user["id"])
                 if not re.fullmatch(r"[0-9a-f]{24}", rid):
                     return self._json(400, {"error": "invalid contributor id"})
                 cells = clean_cells(body.get("cells"))
@@ -393,6 +483,8 @@ class Handler(BaseHTTPRequestHandler):
                     data[rid] = {"cells": cells, "ts": int(time.time())}  # one record per contributor; resubmitting replaces it
                     write_json_atomic(CONTRIB, data)
                 return self._json(200, {"ok": True, "stored": True})
+        except accounts.AuthError as e:
+            return self._json(e.status, {"error": e.code}, headers={"Retry-After": str(e.retry)} if e.retry else None)
         except (ValueError, KeyError, TypeError) as e:
             return self._json(400, {"error": str(e)})
         except urllib.error.HTTPError as e:
@@ -402,6 +494,24 @@ class Handler(BaseHTTPRequestHandler):
             print("server error:", type(e).__name__, file=sys.stderr)
             return self._json(502, {"error": "upstream failure"})
         return self._json(404, {"error": "not found"})
+
+    def _write(self, method):
+        path, ip = self.path.split("?", 1)[0], self.client_ip()
+        if not path.startswith("/api/") or not self._csrf_ok():
+            return self._json(403 if path.startswith("/api/") else 404, {"error": "csrf" if path.startswith("/api/") else "not found"})
+        try:
+            if not self._auth_routes(method, path, ip):
+                self._json(404, {"error": "not found"})
+        except accounts.AuthError as e:
+            self._json(e.status, {"error": e.code}, headers={"Retry-After": str(e.retry)} if e.retry else None)
+        except (ValueError, KeyError, TypeError) as e:
+            self._json(400, {"error": str(e)})
+
+    def do_PUT(self):
+        self._write("PUT")
+
+    def do_DELETE(self):
+        self._write("DELETE")
 
     def log_message(self, fmt, *args):
         pass

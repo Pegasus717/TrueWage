@@ -280,3 +280,12 @@ html.big{font-size:19px}html.big body{font-size:19px}
 .pd{margin:0;padding-left:0;list-style:none}.pd li{padding:9px 0 9px 22px;border-top:1px solid var(--rule);position:relative;font-weight:600}
 .pd li:first-child{border-top:0}.pd li::before{content:"";position:absolute;left:2px;top:17px;width:10px;height:10px;border-radius:50%;background:var(--kept);box-shadow:0 0 0 3px var(--kept-bg)}
 .landing .cta .btn.alt{flex:1}
+
+/* ---------- accounts ---------- */
+.avatar{display:inline-grid;place-items:center;width:34px;height:34px;border-radius:50%;background:var(--ink);color:#fff;font-weight:700}
+.avatar.big{width:52px;height:52px;font-size:22px;flex:none}
+#btn-acct.off{box-shadow:0 0 0 3px var(--warn-bg)}
+.pwwrap{display:flex;gap:8px;align-items:center}.pwwrap input{flex:1}
+.acct{display:flex;gap:14px;align-items:center}
+.btn.danger{border-color:var(--lost);color:var(--lost)}
+.welcome{max-width:640px}

@@ -30,7 +30,7 @@ class T(unittest.TestCase):
     def req(self, method, path, body=None, ctype="application/json"):
         c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
         data = json.dumps(body).encode() if isinstance(body, (dict, list)) else body
-        c.request(method, path, body=data, headers={"Content-Type": ctype} if data is not None else {})
+        c.request(method, path, body=data, headers=({"Content-Type": ctype, "X-TW": "1"} if data is not None else {}))
         r = c.getresponse(); raw = r.read(); c.close()
         try:
             return r.status, json.loads(raw), r
@@ -99,6 +99,8 @@ class T(unittest.TestCase):
         self.assertEqual(self.req("GET", "/api/statement/" + sid)[1]["data"], {"x": 1})
 
     def test_contribute_k_anonymity(self):
+        if os.path.exists(server.CONTRIB):
+            os.remove(server.CONTRIB)          # other test modules share this data dir
         cell = [{"platform": "Swiggy", "zone": "Madhapur", "daypart": "evening", "perHr": 100, "hours": 10}]
         for i in range(19):
             rid = "%024x" % (i + 1)

@@ -16,13 +16,14 @@ No one can guarantee a win. What follows is what we can control: a problem judge
 |---|---|
 | **Problem and impact** | Hidden wage gap; fair-pay floor per order and per km; union evidence; credit access via a tamper-evident statement |
 | **Innovation** | Measured unpaid riding (GPS) replacing the assumption; accuracy range; area-switching advice; order checker that costs a ride the way it costs the rider's day |
-| **Technical depth** | One cost model tested to balance exactly; Claude vision plus OCR fallback; grounded Ask (Claude sees only computed numbers); k-anonymity; SHA-256 statements with registry; hardened stdlib server; 19 Python tests plus an engine suite |
-| **Usability** | Opens in the phone's language, voice questions, one *Next best step*, plan my day, large text, installable |
-| **Feasibility** | Runs today, no dependencies, Docker/Vultr docs, CI |
+| **Technical depth** | One cost model tested to balance exactly; Claude vision plus OCR fallback; grounded Ask (Claude sees only computed numbers); k-anonymity; SHA-256 statements with registry; hardened stdlib server; per-rider accounts (scrypt, HttpOnly session cookie, CSRF header, lockout, versioned sync); 36 Python tests plus an engine suite and a 33-check smoke test |
+| **Usability** | Opens in the phone's language, voice questions, one *Next best step*, plan my day, large text, installable; a private dashboard per rider that follows them across phones |
+| **Feasibility** | A real product, not a mock-up: accounts, saved data, guest mode; runs today, no dependencies, Docker/Vultr docs, CI |
 | **Honesty** | Simulated data is labelled everywhere; self-reported statement says so; limits listed below |
 
 ## 3. Three-minute demo script (works without any API key)
-1. **Landing (0:00):** switch to తెలుగు, the page changes. Tap **Demo rider · Bengaluru** (or Hyderabad).
+0. **Own dashboard (before the clock starts):** in two browser windows create two riders (e.g. Ravi and Sneha), add different data, and show each sees only their own numbers; log out and back in on the second window to show it was saved on the server.
+1. **Landing (0:00):** switch to తెలుగు, the page changes. Tap **Demo rider · Bengaluru** (or Hyderabad), or log in to your prepared rider.
 2. **The answer (0:15):** "Cash in hand" and the sentence. Open *Show full calculation*: apps' total → cuts → fuel and repairs → data → EMI → cash. Tap *How accurate is this?* for the range.
 3. **Measured, not assumed (0:40):** the **shift tracker** card: 64 simulated shifts, unpaid riding *measured* by GPS. A real shift shows a live timer and kilometres.
 4. **Do something (1:00):** **Plan my day** (goal ₹800 → an evening window in the best area); the advice card says *move* from the weak lunch area using city data (labelled simulated); tap the speaker.
@@ -36,6 +37,7 @@ No one can guarantee a win. What follows is what we can control: a problem judge
 * **Are the costs right?** Defaults are editable assumptions; the app shows a range and lets the rider calibrate petrol cost per km; unpaid riding is measured from GPS after 3 paired shifts.
 * **Is the city data real?** Hyderabad and Bengaluru are *simulated* demo datasets, labelled on every screen. Live cells appear only at 20+ real contributors.
 * **Why not just ask an LLM?** Exact numbers come from the engine, tested to balance to the paisa. The LLM reads screenshots and explains, from computed numbers only; it never calculates an order verdict.
+* **How are accounts protected?** Salted scrypt password hashes, random session tokens in HttpOnly SameSite=Strict cookies (only a hash is stored), login throttling, CSRF header, server-side data validation, delete-my-account. Honest gap: no SMS/email verification, so a forgotten password can't be recovered; the roadmap is OTP login.
 * **Privacy?** Screenshots are never stored; only the total GPS distance is kept, never the route; sharing sends only platform, area, time band and ₹/hour under a random id.
 
 ## 5. Before you submit (checklist)
@@ -50,4 +52,5 @@ No one can guarantee a win. What follows is what we can control: a problem judge
 * Claude vision and Ask with Claude are tested against a local mock of the API only (no key was available).
 * GPS tracking was verified with simulated fixes; offline install and voice input could not be tested in the development browser.
 * Docker and Vultr deployment are documented but were not executed.
+* Accounts: no SMS/email verification or password recovery; tested locally and by automated tests, not under load or on a real deployment.
 * On-device OCR is verified on the bundled sample screenshots only.
