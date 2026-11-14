@@ -534,6 +534,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("X-Frame-Options", "DENY")
+        if self._secure():
+            self.send_header("Strict-Transport-Security", "max-age=15552000")      # tell browsers to use HTTPS only (sent only when served over HTTPS)
         self.send_header("Permissions-Policy", "camera=(), microphone=(self), geolocation=(self)")
         super().end_headers()
 

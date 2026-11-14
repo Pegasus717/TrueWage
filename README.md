@@ -7,6 +7,8 @@
 
 Delivery partners and cab drivers on Swiggy, Zomato, Rapido and Ola see a headline earnings number. It ignores petrol, repairs, mobile data, the vehicle EMI, unpaid riding and hours spent waiting. TrueWage reads a rider's earnings screenshots and shows the number that matters: **cash in hand and real pay per hour**.
 
+**Live demo:** https://truewage-0p3b.onrender.com/  (free host: the first load after idle can take up to a minute)
+
 > Sample numbers, the demo riders and the city dashboard are **simulated** and labelled as such inside the app.
 
 ---
