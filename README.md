@@ -31,6 +31,20 @@ Delivery partners and cab drivers on Swiggy, Zomato, Rapido and Ola see a headli
 * **Income Proof** – printable statement with SHA-256 tamper detection, a QR code and a registry check. It states plainly that it is **self-reported**, not platform- or bank-certified.
 * **Your data** – export/import a JSON backup, delete everything, all in the app.
 
+## Using the AI reader carefully (cost and rate limits)
+
+With `ANTHROPIC_API_KEY` set, Claude vision reads screenshots of **any layout** (order lists, single-trip breakups, daily summaries, new-order offers; low resolution and Indian languages included). It is built to use the API sparingly:
+
+* **Shrink first:** the browser resizes each screenshot to at most 1568 px and re-encodes it (about 4x smaller uploads and far fewer image tokens).
+* **One request per batch:** up to 8 screenshots go in a single call, not one call each.
+* **Never pay twice:** the server caches the result per image (SHA-256 of the bytes), so the same screenshot costs nothing the second time, for any rider. The browser also skips files it already imported.
+* **Cheap model first:** `TRUEWAGE_EXTRACT_MODEL` (default `claude-haiku-5-5`) reads everything; only images it could not read are retried once with `TRUEWAGE_ESCALATE_MODEL` (default `claude-sonnet-5-5`).
+* **Hard budget:** `TRUEWAGE_AI_DAILY_IMAGES` (default 400) caps images sent upstream per day, on top of per-IP limits (20 requests/hour).
+* **Backoff and fallback:** 429/overload responses are retried twice (honouring `Retry-After`); after that, or when the budget is spent, the browser automatically uses the on-device OCR reader and tells the rider.
+* **Small replies:** output is capped at about 450 tokens per image, and Ask only ever sends a short summary of already-computed numbers.
+
+Unknown values are never invented: missing times, distances or dates are guessed visibly and flagged in the review step; a history list that shows only some orders is topped up from its own totals as flagged filler; a new-order *offer* screen is recognised and sent to **Check order** instead of being imported as earnings.
+
 ## Run it (no key needed)
 
 ```bash
@@ -71,7 +85,7 @@ python -m unittest discover -s tests        # server (36 tests): accounts, sessi
 python tools/smoke.py http://127.0.0.1:8080 # 33 checks against any running deployment (includes a register → save → logout → login → delete cycle)
 ```
 
-What the tests do **not** prove: accuracy of the real Claude model on real screenshots (the extraction flow is tested against a local mock of the model API), and real-world OCR accuracy on arbitrary app layouts. On-device OCR was checked in the browser on the bundled samples and on generated dark-theme, low-resolution, no-₹-sign and totals-only screenshots (every order and amount recovered), but **never on real screenshots from the Swiggy, Zomato or Rapido apps**: their layouts change and we had none to test. That is why every import ends in a review step, and why flagged corrections and guesses are shown.
+What the tests do **not** prove: accuracy of the real Claude model on real screenshots (the extraction flow is tested against a local mock of the model API), and real-world OCR accuracy on arbitrary app layouts. The AI path is tested against a local mock of the Claude API only (plumbing, caching, batching, retries, escalation, budget, sanitising); **its accuracy on real screenshots has not been measured because no API key was available**. On five real screenshots from the internet (an order offer, a day history with totals, a trip breakup, a trip detail and a trip-complete screen) the on-device OCR got most amounts wrong, which is why the AI reader is the primary path and why every import ends in a review step. On-device OCR was checked in the browser on the bundled samples and on generated dark-theme, low-resolution, no-₹-sign and totals-only screenshots (every order and amount recovered), but **never on real screenshots from the Swiggy, Zomato or Rapido apps**: their layouts change and we had none to test. That is why every import ends in a review step, and why flagged corrections and guesses are shown.
 
 ## Architecture
 

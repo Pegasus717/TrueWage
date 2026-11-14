@@ -15,24 +15,76 @@
     try { const r = await fetch('api/health', { cache: 'no-store' }); if (!r.ok) return false; const j = await r.json(); return !!j.ai; } catch (e) { return false; }
   }
 
-  async function extractWithAI(dataUrls) {
-    const r = await fetch('api/extract', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-TW': '1' }, body: JSON.stringify({ images: dataUrls }) });
-    if (!r.ok) throw new Error('AI reader failed: ' + r.status);
-    const j = await r.json();
-    return (j.sessions || []).map((s, i) => normalizeSession(s, 'ai-' + i));
+  /** Shrink a screenshot before it is sent to the AI: long edge <= 1568 px (the model downsizes beyond that anyway), JPEG.
+   *  Smaller uploads are faster and cheaper; the same file always compresses to the same bytes, so the server cache still hits. */
+  function compressForAI(dataUrl) {
+    return new Promise(resolve => {
+      try {
+        const img = new Image();
+        img.onload = () => {
+          try {
+            const k = Math.min(1, 1568 / Math.max(img.naturalWidth, img.naturalHeight));
+            const w = Math.max(1, Math.round(img.naturalWidth * k)), h = Math.max(1, Math.round(img.naturalHeight * k));
+            const c = document.createElement('canvas'); c.width = w; c.height = h;
+            const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, w, h); x.drawImage(img, 0, 0, w, h);
+            const out = c.toDataURL('image/jpeg', 0.85);
+            resolve(out.length < dataUrl.length ? out : dataUrl);
+          } catch (e) { resolve(dataUrl); }
+        };
+        img.onerror = () => resolve(dataUrl);
+        img.src = dataUrl;
+      } catch (e) { resolve(dataUrl); }
+    });
   }
 
+  class AIError extends Error { constructor(code, retry) { super('AI reader: ' + code); this.code = code; this.retry = retry; } }
+
+  /** One request per batch of up to 8 images (the server only forwards images it has not read before). */
+  async function extractWithAI(dataUrls) {
+    const small = await Promise.all(dataUrls.map(compressForAI));
+    const sessions = [], offers = [], notes = []; const meta = { images: 0, cached: 0, sent: 0, models: [] };
+    for (let i = 0; i < small.length; i += 8) {
+      const r = await fetch('api/extract', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-TW': '1' }, body: JSON.stringify({ images: small.slice(i, i + 8) }) });
+      if (!r.ok) {
+        let code = 'failed'; try { code = (await r.json()).error || code; } catch (e) { /* keep default */ }
+        throw new AIError(r.status === 429 ? 'rate' : code, +r.headers.get('retry-after') || 0);
+      }
+      const j = await r.json();
+      (j.sessions || []).forEach((x, k) => sessions.push(normalizeSession(x, 'ai-' + (i + k))));
+      (j.offers || []).forEach(o => offers.push(o)); (j.notes || []).forEach(n => notes.push(n));
+      if (j.meta) { meta.images += j.meta.images; meta.cached += j.meta.cached; meta.sent += j.meta.sent; meta.models = meta.models.concat(j.meta.models || []); }
+    }
+    return { sessions, offers, notes, meta };
+  }
+
+  /** AI output -> app session. Unknown values are never silently invented: guessed hours, distances and dates are counted so the review step can flag them,
+   *  and a history screen that lists only some orders is topped up from its own totals ("14 orders, Rs 3109") as clearly flagged filler. */
   function normalizeSession(s, id) {
-    const orders = (s.orders || []).map(o => ({
-      hour: toHour(o.time != null ? o.time : o.hour),
-      zone: o.zone || o.area || s.zone || 'Unknown',
-      km: +o.km || +o.distance_km || 0,
-      pay: +o.pay || +o.payout || 0,
-      incentive: +o.incentive || +o.bonus || 0,
-      deduction: +o.deduction || +o.penalty || 0,
-      durMin: +o.duration_min || +o.durMin || Math.round(10 + (+o.km || 3) * 3.4)
-    })).filter(o => isFinite(o.hour));
-    return { id: s.id || id, date: s.date || new Date().toISOString().slice(0, 10), platform: s.platform || 'Unknown', zone: s.zone, onlineMin: +s.online_minutes || +s.onlineMin || 0, bonus: +s.bonus || 0, orders, source: s.source || 'ai' };
+    const raw = s.orders || [];
+    const known = raw.filter(o => +o.km > 0), avgKm = known.length ? known.reduce((a, o) => a + (+o.km), 0) / known.length : 3;
+    let last = null, guessedHours = 0, guessedKm = 0;
+    const orders = raw.map(o => {
+      let hour = toHour(o.time != null ? o.time : o.hour);
+      if (!isFinite(hour)) { hour = last != null ? last : 13; guessedHours++; } else last = hour;
+      let km = +o.km || +o.distance_km || 0;
+      if (!(km > 0)) { km = Math.round(avgKm * 10) / 10; guessedKm++; }
+      return { hour, zone: o.zone || o.area || s.zone || 'Unknown', km, pay: +o.pay || +o.payout || 0, incentive: +o.incentive || +o.bonus || 0, deduction: +o.deduction || +o.penalty || 0,
+        durMin: +o.duration_min || +o.durMin || Math.round(10 + km * 3.4) };
+    }).filter(o => isFinite(o.hour));
+    const visible = orders.reduce((a, o) => a + o.pay + o.incentive, 0);
+    const RN = Math.round(+s.reported_orders || 0), RT = +s.reported_total || 0;
+    let filler = 0;
+    const want = RN > orders.length ? RN - orders.length : (!orders.length && RT > 0 ? 1 : 0);
+    if (want > 0 && want <= 80) {
+      const rest = RT > 0 ? Math.max(0, RT - visible) : 0, avgPay = orders.length ? visible / orders.length : 0, total = rest > 0 ? rest : (RT > 0 ? 0 : avgPay * want);
+      if (total > 0) {
+        const per = Math.round((total / want) * 100) / 100, hr = last != null ? last : 13;
+        for (let k = 0; k < want; k++) orders.push({ hour: hr, zone: s.zone || 'Unknown', km: Math.round(avgKm * 10) / 10, pay: per, incentive: 0, deduction: 0, durMin: Math.round(10 + avgKm * 3.4) });
+        filler = want; guessedHours += want;
+      }
+    }
+    return { id: s.id || id, date: s.date || new Date().toISOString().slice(0, 10), dateGuessed: !s.date, platform: s.platform || 'Unknown', zone: s.zone,
+      onlineMin: +s.online_minutes || +s.onlineMin || 0, bonus: +s.bonus || 0, orders, guessedHours, guessedKm, filler, source: s.source || 'ai' };
   }
 
   function toHour(t) {
@@ -267,12 +319,13 @@
   }
 
   async function readDataUrls(dataUrls, onProgress, forceOCR) {
-    let sessions, reader, unread = 0;
+    let sessions, reader, unread = 0, offers = [], notes = [], meta = null, fallback = null;
     if (!forceOCR && await aiAvailable()) {
-      try { sessions = await extractWithAI(dataUrls); reader = 'ai'; } catch (e) { console.warn(e); }
+      try { const a = await extractWithAI(dataUrls); sessions = a.sessions; offers = a.offers; notes = a.notes; meta = a.meta; reader = 'ai'; }
+      catch (e) { console.warn(e); fallback = e.code || 'failed'; }
     }
     if (!sessions) { const o = await extractWithOCR(dataUrls, onProgress); sessions = o.sessions; unread = o.unread; reader = 'ocr'; }
-    return { sessions, reader, unread };
+    return { sessions, reader, unread, offers, notes, meta, fallback };
   }
 
   /** Main entry for uploaded files. Screenshots whose SHA-256 is already in `known` are skipped (duplicate imports).
@@ -286,7 +339,7 @@
     const dupImages = files.length - fresh.length;
     if (!fresh.length) return { sessions: [], reader: null, hashes: [], dataUrls, dupImages, unread: 0 };
     const r = await readDataUrls(fresh, onProgress);
-    return { sessions: r.sessions, reader: r.reader, hashes: freshHashes, dataUrls, dupImages, unread: r.unread || 0 };
+    return { sessions: r.sessions, reader: r.reader, hashes: freshHashes, dataUrls, dupImages, unread: r.unread || 0, offers: r.offers || [], notes: r.notes || [], meta: r.meta, fallback: r.fallback };
   }
 
   /** Duplicate-session detection: same app + day and (almost) the same orders. */
@@ -310,6 +363,6 @@
     return bad;
   }
 
-  root.TWReader = { isDuplicateSession, validateOrder, readScreenshots, readDataUrls, aiAvailable, sha256Text: async t => sha256(new TextEncoder().encode(t)), parseText, cleanOcr, preprocess, ocr, normalizeSession, toHour, sha256, KNOWN_PLATFORMS };
+  root.TWReader = { isDuplicateSession, validateOrder, readScreenshots, readDataUrls, aiAvailable, sha256Text: async t => sha256(new TextEncoder().encode(t)), parseText, cleanOcr, preprocess, ocr, compressForAI, normalizeSession, toHour, sha256, KNOWN_PLATFORMS };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.TWReader;
 })(typeof window !== 'undefined' ? window : globalThis);

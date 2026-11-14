@@ -19,7 +19,8 @@ Configuration (environment variables, or a .env file next to this script that is
 Screenshots are forwarded to the model API and are never written to disk. The API key is read once at start-up and never
 sent to the browser or written to logs.
 """
-import base64, binascii, json, os, re, sys, threading, time, urllib.error, urllib.request
+import base64, binascii, hashlib, json, os, re, sys, threading, time, urllib.error, urllib.request
+from collections import OrderedDict
 from http.cookies import SimpleCookie
 from urllib.parse import urlparse
 from collections import defaultdict, deque
@@ -43,7 +44,10 @@ def load_dotenv(path):
 
 load_dotenv(os.path.join(ROOT, ".env"))
 API_KEY = os.environ.get("ANTHROPIC_API_KEY", "").strip()
-MODEL = os.environ.get("TRUEWAGE_MODEL", "claude-sonnet-5-5")
+MODEL = os.environ.get("TRUEWAGE_MODEL", "claude-sonnet-5-5")                      # Ask
+EXTRACT_MODEL = os.environ.get("TRUEWAGE_EXTRACT_MODEL", "claude-haiku-5-5")        # screenshot reading: cheap first pass
+ESCALATE_MODEL = os.environ.get("TRUEWAGE_ESCALATE_MODEL", "claude-sonnet-5-5")     # only for screens the first pass could not read
+DAILY_IMAGES = int(os.environ.get("TRUEWAGE_AI_DAILY_IMAGES", "400"))               # hard cap on images sent upstream per day
 API_URL = os.environ.get("ANTHROPIC_API_URL", "https://api.anthropic.com/v1/messages")  # overridable for tests
 DATA_DIR = os.environ.get("TRUEWAGE_DATA", os.path.join(ROOT, "data"))
 TRUST_PROXY = os.environ.get("TRUEWAGE_TRUST_PROXY") == "1"
@@ -57,15 +61,25 @@ STATIC_OK = re.compile(r"^/(index\.html|manifest\.json|sw\.js|icon\.svg|css/[\w.
 MIME = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "application/javascript; charset=utf-8",
         ".json": "application/manifest+json", ".svg": "image/svg+xml"}
 
-PROMPT = """You read screenshots of gig-work earnings screens from Indian delivery and ride apps
-(Swiggy, Zomato, Rapido, Ola, Uber, Porter, Blinkit, Zepto ...). Text may be in English, Hindi, Telugu, Tamil, Kannada or mixed.
-Return ONLY JSON, no prose, in this exact shape:
-{"sessions":[{"platform":"Swiggy","date":"YYYY-MM-DD","online_minutes":0,"zone":"area name or null","bonus":0,
-"orders":[{"time":"HH:MM","zone":"area or null","km":0.0,"pay":0,"incentive":0,"deduction":0,"duration_min":0}]}]}
-Rules: amounts are rupees as numbers. 'pay' = base + distance + tip for that order. 'incentive' = per-order surge/peak extra.
-'bonus' (session level) = daily target / joining / weekly bonus not tied to one order. 'deduction' = penalty, fee, fine, cancellation
-charge. Use 24-hour time. If a value is not visible use 0 (or null for zone). One session per app per day; merge screenshots that
-show the same app and day. Never invent orders that are not visible. If the image is not an earnings screen return {"sessions":[]}."""
+PROMPT_VERSION = "v2"
+PROMPT = """You read screenshots from Indian gig-work apps (Swiggy, Zomato, Rapido, Ola, Uber, Porter, Blinkit, Zepto, Shadowfax ...), for riders and drivers.
+Screens may be low resolution, cropped, dark or light, English / Hindi / Telugu / Tamil / Kannada or mixed. The images are numbered 1..N in the order given.
+Return ONLY JSON, no prose, exactly this shape (one entry per image, in order):
+{"screens":[{"image":1,"kind":"order_list|trip_detail|daily_summary|order_offer|other","platform":"Rapido","date":"YYYY-MM-DD or null",
+"online_minutes":null,"reported_orders":null,"reported_total":null,"bonus":0,
+"orders":[{"time":"HH:MM or null","zone":"locality or null","km":null,"pay":0,"incentive":0,"deduction":0,"duration_min":null}],
+"offer":{"pay":0,"km":0},"note":"short plain note or null"}]}
+KINDS: order_list = several completed orders listed (history); trip_detail = one finished trip with its earnings / breakup / distance;
+daily_summary = day totals ("14 completed orders, Rs 3109"); order_offer = a NEW ORDER OFFER the rider can still accept (route, fare, Accept button): put pay and total km in "offer", leave "orders" empty;
+other = not about earnings or offers (return empty orders).
+RULES:
+- Amounts are rupees as plain numbers (Rs 51.3 -> 51.3). Ignore the rupee sign. Use 24-hour time. Unknown values are null (never 0 for "unknown", never a guess).
+- 'pay' = what the rider EARNED for that order or trip: use the headline net figure the screen calls Total earnings / Trip earnings / Order pay / the amount beside that order in history. Do NOT use: customer fare before fees, tax collected, cash collected from the customer, wallet deductions, tips already inside the headline, or the running totals.
+- 'incentive' = a separately shown surge / peak / extra for that order. 'deduction' = a penalty or fee shown separately and NOT already subtracted in the headline figure. 'bonus' = a daily / weekly target or joining bonus not tied to one order.
+- 'km' = total distance of the trip (pickup leg + drop leg when both are shown). 'duration_min' = trip minutes if shown, or delivered time minus assigned time. 'time' = when the trip started / was assigned / listed.
+- 'zone' = locality or area name ONLY (for example "Banjara Hills"). Never return names, phone numbers, order ids, house numbers or full addresses.
+- A history list that shows only some orders: return the ones you can read, and ALSO put the screen's own count and total in reported_orders / reported_total.
+- One entry per image. Never invent orders that are not visible. If a number is unreadable use null for that field."""
 
 _lock = threading.Lock()
 _hits = defaultdict(deque)
@@ -122,7 +136,18 @@ def sniff(data):
     return None
 
 
-def clean_images(images):
+class AIBusy(Exception):
+    """The model API is overloaded or rate-limited: the browser falls back to on-device OCR."""
+    def __init__(self, retry=30):
+        self.retry = retry
+
+
+class AIBudget(Exception):
+    """The daily image budget is used up."""
+
+
+def prepare_images(images):
+    """Validate data URLs and return [{block, hash}]; hash is SHA-256 of the image bytes (used as the cache key)."""
     if not isinstance(images, list) or not 1 <= len(images) <= MAX_IMAGES:
         raise ValueError("send between 1 and %d images" % MAX_IMAGES)
     out, total = [], 0
@@ -140,7 +165,8 @@ def clean_images(images):
         if kind is None:
             raise ValueError("file content is not a PNG, JPEG or WebP image")
         total += len(raw)
-        out.append({"type": "image", "source": {"type": "base64", "media_type": kind, "data": base64.b64encode(raw).decode()}})
+        out.append({"block": {"type": "image", "source": {"type": "base64", "media_type": kind, "data": base64.b64encode(raw).decode()}},
+                    "hash": hashlib.sha256(raw).hexdigest()})
     if total > 24 * 1024 * 1024:
         raise ValueError("images too large in total")
     return out
@@ -154,30 +180,227 @@ def num(v, lo, hi, default=0.0):
     return default if x != x else max(lo, min(hi, x))
 
 
-def sanitize_sessions(obj):
-    """Never trust model output: coerce to the schema, clamp ranges, drop junk."""
-    out = []
-    for s in (obj.get("sessions") if isinstance(obj, dict) else None) or []:
-        if not isinstance(s, dict):
+def opt_num(v, lo, hi):
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return None
+    return None if x != x else max(lo, min(hi, x))
+
+
+KINDS = {"order_list", "trip_detail", "daily_summary", "order_offer", "other"}
+
+
+def clean_time(v):
+    m = re.fullmatch(r"(\d{1,2}):(\d{2})", str(v or "").strip())
+    if not m or int(m.group(1)) > 29 or int(m.group(2)) > 59:
+        return None
+    return "%02d:%s" % (int(m.group(1)), m.group(2))
+
+
+def sanitize_screen(sc):
+    """Never trust model output: coerce one screen to the schema, clamp ranges, drop junk."""
+    if not isinstance(sc, dict):
+        return None
+    kind = sc.get("kind") if sc.get("kind") in KINDS else "other"
+    d = str(sc.get("date") or "")
+    plat = str(sc.get("platform") or "Unknown")[:30]
+    zone_default = re.sub(r"[^\w .\-]", "", str(sc.get("zone") or ""))[:40].strip() or None
+    orders = []
+    for o in (sc.get("orders") or [])[:300]:
+        if not isinstance(o, dict):
             continue
-        d = str(s.get("date") or "")
-        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", d):
-            d = date.today().isoformat()
-        orders = []
-        for o in (s.get("orders") or [])[:300]:
-            if not isinstance(o, dict):
+        pay, inc = num(o.get("pay"), 0, 5000), num(o.get("incentive"), 0, 5000)
+        if pay + inc <= 0:
+            continue
+        zone = re.sub(r"[^\w .\-]", "", str(o.get("zone") or ""))[:40].strip() or zone_default
+        orders.append({"time": clean_time(o.get("time")), "zone": zone or "Unknown", "km": opt_num(o.get("km"), 0, 150), "pay": pay, "incentive": inc,
+                       "deduction": num(o.get("deduction"), 0, 5000), "duration_min": opt_num(o.get("duration_min"), 0, 240)})
+    offer = None
+    of = sc.get("offer")
+    if kind == "order_offer" and isinstance(of, dict) and num(of.get("pay"), 0, 20000) > 0 and num(of.get("km"), 0, 500) > 0:
+        offer = {"pay": num(of.get("pay"), 0, 20000), "km": num(of.get("km"), 0, 500)}
+    note = re.sub(r"[\x00-\x1f]", " ", str(sc.get("note") or ""))[:160] or None
+    return {"kind": kind, "platform": plat if plat in PLATFORMS else "Unknown", "date": d if re.fullmatch(r"\d{4}-\d{2}-\d{2}", d) else None,
+            "online_minutes": opt_num(sc.get("online_minutes"), 0, 1440), "reported_orders": opt_num(sc.get("reported_orders"), 0, 500),
+            "reported_total": opt_num(sc.get("reported_total"), 0, 100000), "bonus": num(sc.get("bonus"), 0, 20000), "orders": orders, "offer": offer, "note": note}
+
+
+def needs_escalation(scs):
+    """The cheap model could not read this image: no screens, or a screen that should hold earnings but holds nothing."""
+    if not scs:
+        return True
+    return all(sc["kind"] in ("order_list", "trip_detail", "daily_summary") and not sc["orders"] and not sc["reported_total"] for sc in scs)
+
+
+def merge_screens(screens):
+    """Combine screens into sessions (one per app and day). Repeated screenshots of the same day are merged without double counting."""
+    groups, offers, notes = {}, [], []
+    for sc in screens:
+        if sc["note"]:
+            notes.append(sc["note"])
+        if sc["offer"]:
+            offers.append(dict(sc["offer"], platform=sc["platform"]))
+        if sc["kind"] not in ("order_list", "trip_detail", "daily_summary") or not (sc["orders"] or sc["reported_total"]):
+            continue
+        g = groups.setdefault((sc["platform"], sc["date"]), {"platform": sc["platform"], "date": sc["date"], "online_minutes": None, "bonus": 0,
+                                                              "reported_orders": None, "reported_total": None, "orders": [], "_seen": set()})
+        for o in sc["orders"]:
+            key = (o["time"], round(o["pay"]), o["km"]) if o["time"] else None
+            if key and key in g["_seen"]:
                 continue
-            m = re.fullmatch(r"(\d{1,2}):(\d{2})", str(o.get("time") or "").strip())
-            if not m or int(m.group(1)) > 29 or int(m.group(2)) > 59:
+            if key:
+                g["_seen"].add(key)
+            g["orders"].append(o)
+        for f in ("online_minutes", "reported_orders", "reported_total"):
+            if sc[f] is not None and (g[f] is None or sc[f] > g[f]):
+                g[f] = sc[f]
+        g["bonus"] = max(g["bonus"], sc["bonus"])
+    sessions = []
+    for g in groups.values():
+        g.pop("_seen")
+        sessions.append(g)
+    return {"sessions": sessions, "offers": offers[:10], "notes": notes[:10]}
+
+
+# per-image result cache (keyed by the image's SHA-256 + prompt version): re-reading the same screenshot never costs a second API call
+_cache_lock = threading.Lock()
+_cache = None
+CACHE_MAX = 3000
+
+
+def _cache_path():
+    return os.path.join(DATA_DIR, "extract_cache.json")
+
+
+def cache_get(h):
+    global _cache
+    with _cache_lock:
+        if _cache is None:
+            _cache = OrderedDict(read_json(_cache_path(), {}))
+        k = PROMPT_VERSION + ":" + h
+        if k in _cache:
+            _cache.move_to_end(k)
+            return _cache[k]
+    return None
+
+
+def cache_put(h, screens):
+    with _cache_lock:
+        if _cache is None:
+            return
+        _cache[PROMPT_VERSION + ":" + h] = screens
+        while len(_cache) > CACHE_MAX:
+            _cache.popitem(last=False)
+        try:
+            write_json_atomic(_cache_path(), _cache)
+        except OSError:
+            pass
+
+
+# daily budget: a hard ceiling on images sent upstream, whatever the per-user limits allow
+_budget_lock = threading.Lock()
+
+
+def spend_budget(n):
+    path = os.path.join(DATA_DIR, "ai_usage.json")
+    today = date.today().isoformat()
+    with _budget_lock:
+        u = read_json(path, {})
+        used = u.get(today, 0) if isinstance(u, dict) else 0
+        if used + n > DAILY_IMAGES:
+            raise AIBudget()
+        try:
+            write_json_atomic(path, {today: used + n})
+        except OSError:
+            pass
+
+
+def post_upstream(body):
+    """POST to the model API; retries rate-limit / overload responses twice with backoff (honouring Retry-After), then gives up cleanly."""
+    delays = [1.5, 4.0]
+    for attempt in range(3):
+        req = urllib.request.Request(API_URL, data=body, headers={"content-type": "application/json", "x-api-key": API_KEY, "anthropic-version": "2023-06-01"})
+        try:
+            with urllib.request.urlopen(req, timeout=90) as r:
+                return json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            if e.code in (429, 500, 502, 503, 529):
+                try:
+                    wait = float(e.headers.get("retry-after") or delays[min(attempt, 1)])
+                except (TypeError, ValueError):
+                    wait = delays[min(attempt, 1)]
+                if attempt < 2 and wait <= 10:
+                    time.sleep(wait)
+                    continue
+                raise AIBusy(int(min(max(wait, 5), 120)))
+            raise ValueError("the AI reader rejected the request (%d)" % e.code)
+        except (urllib.error.URLError, TimeoutError, OSError):
+            if attempt < 2:
+                time.sleep(delays[attempt])
                 continue
-            orders.append({"time": "%02d:%s" % (int(m.group(1)), m.group(2)), "zone": str(o.get("zone") or s.get("zone") or "Unknown")[:40],
-                           "km": num(o.get("km"), 0, 150), "pay": num(o.get("pay"), 0, 5000), "incentive": num(o.get("incentive"), 0, 5000),
-                           "deduction": num(o.get("deduction"), 0, 5000), "duration_min": num(o.get("duration_min"), 0, 240)})
-        if orders:
-            plat = str(s.get("platform") or "Unknown")[:30]
-            out.append({"platform": plat if plat in PLATFORMS else "Unknown", "date": d, "online_minutes": num(s.get("online_minutes"), 0, 1440),
-                        "zone": str(s.get("zone") or "")[:40] or None, "bonus": num(s.get("bonus"), 0, 20000), "orders": orders})
-    return {"sessions": out}
+            raise AIBusy(30)
+
+
+def read_with_model(model, prepared):
+    """One request for several images; returns {1-based index: [screens]}."""
+    n = len(prepared)
+    body = json.dumps({"model": model, "max_tokens": min(4096, 450 * n + 350),
+                       "messages": [{"role": "user", "content": [x["block"] for x in prepared] + [{"type": "text", "text": PROMPT}]}]}).encode()
+    out = post_upstream(body)
+    text = "".join(b.get("text", "") for b in out.get("content", []) if b.get("type") == "text")
+    try:
+        data = parse_json(text)
+    except ValueError:
+        return {}
+    got = {}
+    for sc in (data.get("screens") if isinstance(data, dict) else None) or []:
+        clean = sanitize_screen(sc)
+        try:
+            idx = int(sc.get("image"))
+        except (TypeError, ValueError, AttributeError):
+            continue
+        if clean and 1 <= idx <= n:
+            got.setdefault(idx, []).append(clean)
+    return got
+
+
+def call_claude(images):
+    prepared = prepare_images(images)
+    result = {}                                   # position -> screens
+    todo, cached = [], 0
+    for i, x in enumerate(prepared):
+        hit = cache_get(x["hash"])
+        if hit is not None:
+            result[i], cached = hit, cached + 1
+        else:
+            todo.append(i)
+    sent, models = 0, []
+    if todo:
+        spend_budget(len(todo))
+        sent = len(todo)
+        got = read_with_model(EXTRACT_MODEL, [prepared[i] for i in todo])
+        models.append(EXTRACT_MODEL)
+        weak = [i for k, i in enumerate(todo) if needs_escalation(got.get(k + 1))]
+        if weak and ESCALATE_MODEL and ESCALATE_MODEL != EXTRACT_MODEL:
+            try:
+                spend_budget(len(weak))
+                better = read_with_model(ESCALATE_MODEL, [prepared[i] for i in weak])
+                models.append(ESCALATE_MODEL)
+                for k, i in enumerate(weak):
+                    if better.get(k + 1) and not needs_escalation(better.get(k + 1)):
+                        got[todo.index(i) + 1] = better[k + 1]
+            except AIBudget:
+                pass
+        for k, i in enumerate(todo):
+            scs = got.get(k + 1) or []
+            result[i] = scs
+            if scs:
+                cache_put(prepared[i]["hash"], scs)
+    screens = [sc for i in sorted(result) for sc in result[i]]
+    out = merge_screens(screens)
+    out["meta"] = {"images": len(prepared), "cached": cached, "sent": sent, "models": models}
+    return out
 
 
 # ---------------- ask: grounded Q&A ----------------
@@ -237,17 +460,6 @@ def parse_json(text):
         if not m:
             raise ValueError("no JSON in model output")
         return json.loads(m.group(0))
-
-
-def call_claude(images):
-    content = clean_images(images) + [{"type": "text", "text": PROMPT}]
-    body = json.dumps({"model": MODEL, "max_tokens": 4096, "messages": [{"role": "user", "content": content}]}).encode()
-    req = urllib.request.Request(API_URL, data=body,
-                                 headers={"content-type": "application/json", "x-api-key": API_KEY, "anthropic-version": "2023-06-01"})
-    with urllib.request.urlopen(req, timeout=90) as r:
-        out = json.loads(r.read())
-    text = "".join(b.get("text", "") for b in out.get("content", []) if b.get("type") == "text")
-    return sanitize_sessions(parse_json(text))
 
 
 # ---------------- contributions (k-anonymous aggregate) ----------------
@@ -483,6 +695,10 @@ class Handler(BaseHTTPRequestHandler):
                     data[rid] = {"cells": cells, "ts": int(time.time())}  # one record per contributor; resubmitting replaces it
                     write_json_atomic(CONTRIB, data)
                 return self._json(200, {"ok": True, "stored": True})
+        except AIBusy as e:
+            return self._json(503, {"error": "ai_busy"}, headers={"Retry-After": str(e.retry)})
+        except AIBudget:
+            return self._json(503, {"error": "ai_budget"})
         except accounts.AuthError as e:
             return self._json(e.status, {"error": e.code}, headers={"Retry-After": str(e.retry)} if e.retry else None)
         except (ValueError, KeyError, TypeError) as e:

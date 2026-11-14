@@ -1032,15 +1032,18 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     if (ui.busy) { b.innerHTML = `<div class="reading"><div class="spin"></div><span>${t('reading')}</span><div class="bar2"><i id="read-bar" style="width:${ui.progress || 6}%"></i></div></div>${thumbsHTML()}`; return; }
     b.innerHTML = `<p class="muted" style="margin-bottom:14px">${t('imp_how')}</p>
       <div class="drop" id="drop">${ic('image').replace('class="i"', 'class="i" style="width:40px;height:40px"')}<button class="btn lg" id="pick">${ic('upload')}${t('imp_pick')}</button><p>${t('drop_s')}</p></div>
-      ${ui.msg ? `<div class="status ${ui.msg.err ? 'err' : ''}">${esc(ui.msg.text)}</div>` : ''}${thumbsHTML()}
+      ${ui.msg ? `<div class="status ${ui.msg.err ? 'err' : ''}">${esc(ui.msg.text)}</div>` : ''}${aiNoteHTML()}${offerHTML()}${thumbsHTML()}
       <div class="center"><button class="link" id="btn-samples">${t('btn_samples')}</button></div>`;
     const drop = $('#drop', b);
     $('#pick', b).onclick = () => $('#file').click();
     ['dragover', 'dragenter'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
     ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
     drop.addEventListener('drop', e => handleFiles(e.dataTransfer.files));
-    $('#btn-samples', b).onclick = trySamples;
+    $('#btn-samples', b).onclick = trySamples; bindOffer(b);
   }
+  const offerHTML = () => !ui.offer ? '' : `<div class="card offer"><div class="eyebrow">${esc(t('offer_found'))}</div><p class="h3 num">${inr(ui.offer.pay)} · ${Math.round(ui.offer.km * 10) / 10} km</p><p class="note">${esc(t('offer_note'))}</p><button class="btn lg block" id="go-offer">${esc(t('offer_check'))}</button></div>`;
+  const aiNoteHTML = () => ui.aiNote ? `<div class="status ${ui.aiNote === t('ai_fallback') ? 'err' : ''}">${esc(ui.aiNote)}</div>` : '';
+  const bindOffer = b => { const g = $('#go-offer', b); if (g) g.onclick = () => { S.oc = { pay: ui.offer.pay, km: ui.offer.km }; ui.offer = null; closeSheet(); setTab('check'); }; };
   const thumbsHTML = review => !ui.thumbs ? '' : `<div class="thumbs">${ui.thumbs.urls.map((u, i) => ui.thumbs.dl ? `<a href="${u}" download="truewage-sample-${i + 1}.png" title="download"><img src="${u}" alt="sample screenshot ${i + 1}"></a>` : `<img src="${u}" alt="screenshot ${i + 1}">`).join('')}${ui.thumbs.dl && !review ? `<p class="note" style="align-self:center;max-width:210px">${t('imp_sample_hint')}</p>` : ''}</div>`;
   const setProgress = p => { const el = $('#read-bar'); ui.progress = Math.max(6, rd(p * 100)); if (el) el.style.width = ui.progress + '%'; };
   const fmtTime = h => { const hh = Math.floor(h), mm = Math.round((h - hh) * 60); return String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0'); };
@@ -1072,9 +1075,12 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     }).join('');
     const notes = [`<span class="pill">${t(P.reader === 'ai' ? 'reader_ai' : P.reader === 'ocr' ? 'reader_ocr' : 'reader_demo')}</span>`];
     if (P.dupImages) notes.push(`<span class="pill warnp">${esc(t('imp_dup_img', { n: P.dupImages }))}</span>`);
-    b.innerHTML = `${ui.thumbs ? thumbsHTML(true) : ''}<h3 class="h2" style="font-size:22px">${nOrders ? esc(t('imp_found', { n: nOrders, s: P.sessions.length })) : esc(t('imp_none'))}</h3>
+    b.innerHTML = `${aiNoteHTML()}${offerHTML()}${ui.thumbs ? thumbsHTML(true) : ''}<h3 class="h2" style="font-size:22px">${nOrders ? esc(t('imp_found', { n: nOrders, s: P.sessions.length })) : esc(t('imp_none'))}</h3>
       <div class="rows" style="margin:8px 0 4px">${notes.join('')}${bad ? `<span class="pill dupp">${esc(t('imp_check_n', { n: bad }))}</span>` : ''}</div>
       ${P.unread ? `<div class="status err">${esc(t('imp_unread', { n: P.unread }))}</div>` : ''}
+      ${P.sessions.some(x => x.filler) ? `<div class="status err">${esc(t('imp_filler', { n: P.sessions.reduce((a, x) => a + (x.filler || 0), 0) }))}</div>` : ''}
+      ${P.sessions.some(x => x.guessedKm) ? `<div class="status err">${esc(t('imp_km_guess'))}</div>` : ''}
+      ${P.sessions.some(x => x.dateGuessed) ? `<div class="status err">${esc(t('imp_date_guess'))}</div>` : ''}
       ${P.sessions.reduce((a, x) => a + (x.fixedAmounts || 0), 0) ? `<div class="status err">${esc(t('imp_fixed', { n: P.sessions.reduce((a, x) => a + (x.fixedAmounts || 0), 0) }))}</div>` : ''}
       ${P.sessions.some(x => x.summary) ? `<div class="status err">${esc(t('imp_summary'))}</div>` : P.sessions.reduce((a, x) => a + (x.guessedHours || 0), 0) ? `<div class="status err">${esc(t('imp_guess', { n: P.sessions.reduce((a, x) => a + (x.guessedHours || 0), 0) }))}</div>` : ''}
       ${ui.msg && ui.msg.err ? `<div class="status err">${esc(ui.msg.text)}</div>` : ''}${cards}
@@ -1161,6 +1167,8 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     try {
       const res = await R.readScreenshots(files, setProgress, S.hashes);
       ui.thumbs = { urls: res.dataUrls, dl: false }; ui.busy = false;
+      ui.offer = (res.offers && res.offers[0]) || null; ui.aiNote = res.fallback ? t('ai_fallback') : (res.notes && res.notes[0]) || null;
+      if (!res.sessions.length && ui.offer) { ui.msg = null; renderSheet(); return; }
       if (!res.sessions.length) {
         if (res.dupImages === files.length) { ui.msg = { text: t('imp_dup_img', { n: res.dupImages }), err: true }; renderSheet(); return; }
         stage([{ id: 'manual', date: new Date().toISOString().slice(0, 10), platform: 'Unknown', onlineMin: 0, bonus: 0, orders: [] }], 'manual', res.hashes, { unread: res.unread, dupImages: res.dupImages });

@@ -315,3 +315,14 @@ console.log('v7 OK  plan', plan.segments.map(g => g.start + '-' + g.end + ' ' + 
   assert.strictEqual(b.orders[1].zone, 'Uppal');
   console.log('v13 OK  real OCR output of card/table screens');
 }
+
+// ---- v14: a screenshot from months ago must not make the rider "pay" EMI for the gap ----
+{
+  const mk = (date, pay) => ({ id: 'x' + date, date, platform: 'Rapido', onlineMin: 300, bonus: 0, orders: [{ hour: 12, zone: 'Uppal', km: 4, pay, incentive: 0, deduction: 0, durMin: 20 }] });
+  const rep2 = TW.analyze([mk('2025-07-27', 521), mk('2026-11-14', 280)], Object.assign(TW.defaultProfile('petrol'), { fixedPerDay: 120 }));
+  assert.strictEqual(rep2.calSpan, 4, 'long gap counts as 3 days');
+  assert.ok(rep2.total.net > 0, 'net stays positive: ' + rep2.total.net);
+  const demoRep = TW.analyze(D.demoSessions(), Object.assign(TW.defaultProfile('petrol'), { fixedPerDay: 120 }));
+  assert.strictEqual(Math.round(demoRep.total.fixed), 120 * demoRep.calSpan);
+  console.log('v14 OK  sparse history span', rep2.calSpan, 'demo span', demoRep.calSpan);
+}

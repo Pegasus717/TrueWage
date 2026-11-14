@@ -87,7 +87,7 @@
     });
     if (out.length) {
       const dates = Array.from(new Set(out.map(o => o.date))).sort();
-      const calSpan = Math.max(1, dayDiff(dates[0], dates[dates.length - 1]) + 1);
+      const calSpan = effSpan(dates);
       const perWorkedDay = p.fixedPerDay * calSpan / dates.length;
       const dayMins = new Map(), dayN = new Map();
       out.forEach(o => { dayMins.set(o.date, (dayMins.get(o.date) || 0) + o.mins); dayN.set(o.date, (dayN.get(o.date) || 0) + 1); });
@@ -125,6 +125,9 @@
   }
 
   function dayDiff(a, b) { return Math.round((new Date(b) - new Date(a)) / 86400000); }
+  /** Calendar days a set of worked dates stands for. Gaps of up to 3 days count in full (ordinary days off); a longer gap counts as 3, because a
+   *  stretch with no screenshots is missing data, not proof the rider paid EMI for those days out of these few orders. */
+  function effSpan(dates) { let n = 1; for (let i = 1; i < dates.length; i++) n += Math.min(3, Math.max(1, dayDiff(dates[i - 1], dates[i]))); return n; }
 
   function median(a) {
     if (!a.length) return 0;
@@ -140,9 +143,8 @@
 
     const total = aggregate(orders);
     const dates = Array.from(new Set(orders.map(o => o.date))).sort();
-    const spanDays = Math.max(7, dayDiff(dates[0], dates[dates.length - 1]) + 1);
+    const calSpan = effSpan(dates), spanDays = Math.max(7, calSpan);
     const daysWorked = dates.length;
-    const calSpan = Math.max(1, dayDiff(dates[0], dates[dates.length - 1]) + 1);
     const dataQuality = { days: daysWorked, orders: total.n, hours: total.hours, level: daysWorked >= 7 && total.n >= 40 ? 'good' : daysWorked >= 3 && total.n >= 15 ? 'ok' : 'low' };
 
     const byDay = Array.from(groupBy(orders, o => o.date)).map(([date, l]) => {

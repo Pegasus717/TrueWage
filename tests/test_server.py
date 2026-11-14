@@ -69,23 +69,30 @@ class T(unittest.TestCase):
 
     def test_image_validation(self):
         png = "data:image/png;base64," + base64.b64encode(tiny_png()).decode()
-        self.assertEqual(len(server.clean_images([png])), 1)
-        with self.assertRaises(ValueError): server.clean_images([])
-        with self.assertRaises(ValueError): server.clean_images(["data:text/html;base64,PGI+"])
-        with self.assertRaises(ValueError): server.clean_images(["data:image/png;base64," + base64.b64encode(b"not an image at all").decode()])
-        with self.assertRaises(ValueError): server.clean_images([png] * 13)
+        self.assertEqual(len(server.prepare_images([png])), 1)
+        with self.assertRaises(ValueError): server.prepare_images([])
+        with self.assertRaises(ValueError): server.prepare_images(["data:text/html;base64,PGI+"])
+        with self.assertRaises(ValueError): server.prepare_images(["data:image/png;base64," + base64.b64encode(b"not an image at all").decode()])
+        with self.assertRaises(ValueError): server.prepare_images([png] * 13)
 
     def test_model_output_is_sanitized(self):
-        out = server.sanitize_sessions({"sessions": [
-            {"platform": "Evil<script>", "date": "tomorrow", "bonus": 1e12, "orders": [
-                {"time": "13:05", "zone": "<b>Madhapur</b>" * 20, "km": -5, "pay": 99999, "incentive": "abc", "deduction": 10},
-                {"time": "99:99", "pay": 10}, "junk"]},
-            {"platform": "Swiggy", "orders": []}, "junk"]})
-        self.assertEqual(len(out["sessions"]), 1)
-        s = out["sessions"][0]
-        self.assertEqual(s["platform"], "Unknown"); self.assertRegex(s["date"], r"^\d{4}-\d{2}-\d{2}$"); self.assertLessEqual(s["bonus"], 20000)
-        self.assertEqual(len(s["orders"]), 1); o = s["orders"][0]
-        self.assertEqual((o["km"], o["pay"], o["incentive"]), (0, 5000, 0)); self.assertLessEqual(len(o["zone"]), 40)
+        sc = server.sanitize_screen({"kind": "weird", "platform": "Evil<script>", "date": "tomorrow", "bonus": 1e12, "orders": [
+            {"time": "13:05", "zone": "<b>Madhapur</b>" * 20, "km": -5, "pay": 99999, "incentive": "abc", "deduction": 10},
+            {"time": "99:99", "pay": 10}, {"time": None, "pay": 0}, "junk"]})
+        self.assertEqual((sc["kind"], sc["platform"], sc["date"]), ("other", "Unknown", None)); self.assertLessEqual(sc["bonus"], 20000)
+        self.assertEqual(len(sc["orders"]), 2)                                   # zero-pay and junk rows dropped; unknown time is kept as None
+        o = sc["orders"][0]; self.assertEqual((o["km"], o["pay"], o["incentive"]), (0, 5000, 0)); self.assertLessEqual(len(o["zone"]), 40)
+        self.assertNotIn("<", o["zone"]); self.assertIsNone(sc["orders"][1]["time"])
+        self.assertIsNone(server.sanitize_screen("junk"))
+
+    def test_screens_merge_without_double_counting(self):
+        a = server.sanitize_screen({"kind": "order_list", "platform": "Rapido", "date": "2026-11-12", "orders": [{"time": "10:00", "km": 3, "pay": 50}]})
+        b = server.sanitize_screen({"kind": "order_list", "platform": "Rapido", "date": "2026-11-12", "reported_orders": 14, "reported_total": 3109,
+                                    "orders": [{"time": "10:00", "km": 3, "pay": 50}, {"time": "11:00", "km": 2, "pay": 40}]})
+        c = server.sanitize_screen({"kind": "order_offer", "platform": "Rapido", "offer": {"pay": 422, "km": 15.7}})
+        m = server.merge_screens([a, b, c])
+        self.assertEqual(len(m["sessions"]), 1); self.assertEqual(len(m["sessions"][0]["orders"]), 2)
+        self.assertEqual((m["sessions"][0]["reported_orders"], m["sessions"][0]["reported_total"]), (14, 3109)); self.assertEqual(m["offers"][0]["km"], 15.7)
 
     def test_statement_registry(self):
         h = "a" * 64; sid = "TW-" + h[:12].upper()

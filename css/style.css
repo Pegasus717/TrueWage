@@ -365,3 +365,5 @@ a.link,button.link{color:var(--ink);font-weight:700}
   .cols.lead .tour{order:12}
   .cols.lead .assume{order:13}
 }
+
+.card.offer{border-left:10px solid var(--yellow);margin-bottom:14px}.card.offer .btn{margin-top:10px}

@@ -7,6 +7,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 os.environ["TRUEWAGE_DATA"] = tempfile.mkdtemp()
 SEEN = {}
+MODE = {"m": "ok"}
 
 
 class Mock(BaseHTTPRequestHandler):
@@ -17,16 +18,28 @@ class Mock(BaseHTTPRequestHandler):
             SEEN["ask"] = body
             out = json.dumps({"content": [{"type": "text", "text": "Go to Madhapur in the evening: about Rs 135 an hour."}]}).encode()
             self.send_response(200); self.send_header("Content-Length", str(len(out))); self.end_headers(); self.wfile.write(out); return
-        reply = '```json\n{"sessions":[{"platform":"Zomato","date":"2026-11-12","online_minutes":300,"bonus":150,"orders":[{"time":"18:05","zone":"Madhapur","km":2.7,"pay":46,"incentive":6,"deduction":0},{"time":"bad","pay":1}]}]}\n```'
+        n = sum(1 for b in body["messages"][0]["content"] if b.get("type") == "image")
+        SEEN.setdefault("calls", []).append((body["model"], n))
+        if MODE["m"] == "always_busy" or (MODE["m"] == "busy_once" and not MODE.get("done")):
+            MODE["done"] = True
+            self.send_response(429); self.send_header("retry-after", "0"); self.send_header("Content-Length", "2"); self.end_headers(); self.wfile.write(b"{}"); return
+        if MODE["m"] == "empty_first" and "haiku" in body["model"]:
+            screens = [{"image": i + 1, "kind": "order_list", "platform": "Rapido", "orders": []} for i in range(n)]
+        else:
+            screens = [{"image": 1, "kind": "trip_detail", "platform": "Zomato", "date": "2026-11-12", "online_minutes": 300, "bonus": 150,
+                        "orders": [{"time": "18:05", "zone": "Madhapur", "km": 2.7, "pay": 46, "incentive": 6, "deduction": 0}, {"time": "bad", "pay": 0}, {"time": None, "pay": 0}]}]
+            screens += [{"image": i + 1, "kind": "order_offer", "offer": {"pay": 422, "km": 15.7}, "note": "offer"} for i in range(1, n)]
+        reply = "```json" + chr(10) + json.dumps({"screens": screens}) + chr(10) + "```"
         out = json.dumps({"content": [{"type": "text", "text": reply}]}).encode()
         self.send_response(200); self.send_header("Content-Length", str(len(out))); self.end_headers(); self.wfile.write(out)
 
     def log_message(self, *a): pass
 
 
-def png():
+def png(seed=0):
     def ch(t, d): return struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xffffffff)
-    return b"\x89PNG\r\n\x1a\n" + ch(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)) + ch(b"IDAT", zlib.compress(b"\x00\xff\xff\xff")) + ch(b"IEND", b"")
+    sig = bytes([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+    return sig + ch(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)) + ch(b"IDAT", zlib.compress(bytes([0, 255, 255, 255 - seed % 200]))) + ch(b"IEND", b"")
 
 
 class T(unittest.TestCase):
@@ -53,16 +66,63 @@ class T(unittest.TestCase):
         c.request("POST", "/api/extract", body=json.dumps(body).encode(), headers={"Content-Type": "application/json", "X-TW": "1"})
         r = c.getresponse(); data = json.loads(r.read()); c.close(); return r.status, data
 
+    def img(self, seed):
+        return "data:image/png;base64," + base64.b64encode(png(seed)).decode()
+
     def test_extract_roundtrip(self):
-        img = "data:image/png;base64," + base64.b64encode(png()).decode()
-        s, j = self.post({"images": [img]})
+        SEEN.pop("calls", None); MODE["m"] = "ok"
+        s, j = self.post({"images": [self.img(1)]})
         self.assertEqual(s, 200)
         self.assertEqual(SEEN["key"], "test-key-123"); self.assertEqual(SEEN["version"], "2023-06-01")
         blocks = SEEN["body"]["messages"][0]["content"]
         self.assertEqual(blocks[0]["type"], "image"); self.assertEqual(blocks[0]["source"]["media_type"], "image/png"); self.assertEqual(blocks[-1]["type"], "text")
+        self.assertIn("haiku", SEEN["body"]["model"])                       # the cheap model reads first
         sess = j["sessions"][0]
-        self.assertEqual((sess["platform"], sess["bonus"], len(sess["orders"])), ("Zomato", 150, 1))  # the malformed order was dropped
-        self.assertEqual(sess["orders"][0]["time"], "18:05")
+        self.assertEqual((sess["platform"], sess["bonus"], len(sess["orders"])), ("Zomato", 150, 1))  # malformed and zero-pay orders were dropped
+        self.assertEqual(sess["orders"][0]["time"], "18:05"); self.assertEqual(j["meta"]["sent"], 1)
+
+    def test_same_image_is_never_paid_for_twice(self):
+        SEEN["calls"] = []; MODE["m"] = "ok"
+        im = self.img(2)
+        s1, j1 = self.post({"images": [im]}); s2, j2 = self.post({"images": [im]})
+        self.assertEqual((s1, s2), (200, 200)); self.assertEqual(len(SEEN["calls"]), 1)
+        self.assertEqual(j2["meta"]["cached"], 1); self.assertEqual(j2["meta"]["sent"], 0); self.assertEqual(j1["sessions"], j2["sessions"])
+
+    def test_images_are_batched_in_one_request_and_only_new_ones_are_sent(self):
+        SEEN["calls"] = []; MODE["m"] = "ok"
+        a, b, c = self.img(3), self.img(4), self.img(5)
+        self.post({"images": [a]})
+        s, j = self.post({"images": [a, b, c]})
+        self.assertEqual(s, 200); self.assertEqual(SEEN["calls"][-1][1], 2)   # a was cached: two images, one request
+        self.assertEqual(len(j["offers"]), 1); self.assertEqual(j["offers"][0]["km"], 15.7)
+
+    def test_rate_limited_upstream_is_retried_then_succeeds(self):
+        SEEN["calls"] = []; MODE.clear(); MODE["m"] = "busy_once"
+        s, j = self.post({"images": [self.img(6)]})
+        MODE["m"] = "ok"
+        self.assertEqual(s, 200); self.assertEqual(len(SEEN["calls"]), 2)
+
+    def test_persistent_overload_returns_ai_busy_so_the_browser_can_fall_back(self):
+        MODE.clear(); MODE["m"] = "always_busy"
+        s, j = self.post({"images": [self.img(7)]})
+        MODE["m"] = "ok"
+        self.assertEqual((s, j["error"]), (503, "ai_busy"))
+
+    def test_weak_first_pass_escalates_only_that_image(self):
+        SEEN["calls"] = []; MODE["m"] = "empty_first"
+        s, j = self.post({"images": [self.img(8)]})
+        MODE["m"] = "ok"
+        self.assertEqual(s, 200); self.assertEqual([c[0].split("-")[1] for c in SEEN["calls"]], ["haiku", "sonnet"])
+        self.assertEqual(len(j["sessions"][0]["orders"]), 1)
+
+    def test_daily_budget_is_a_hard_cap(self):
+        MODE["m"] = "ok"; old = self.server.DAILY_IMAGES
+        try:
+            self.server.DAILY_IMAGES = 0
+            s, j = self.post({"images": [self.img(9)]})
+            self.assertEqual((s, j["error"]), (503, "ai_budget"))
+        finally:
+            self.server.DAILY_IMAGES = old
 
     def ask(self, body):
         c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
