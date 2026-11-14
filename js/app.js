@@ -195,7 +195,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
       ${arc(0, fairV, R, '#E4572E', 16)}${arc(fairV, max, R, '#3DDC97', 16)}${ticks}
       <path d="M${fx1.toFixed(1)} ${fy1.toFixed(1)} L${fx2.toFixed(1)} ${fy2.toFixed(1)}" stroke="#FF8A6B" stroke-width="4"/>
       <path d="M${mx2.toFixed(1)} ${my2.toFixed(1)} L${(mx + (cx - mx) * 0.06).toFixed(1)} ${(my + (cy - my) * 0.06).toFixed(1)}" stroke="#FFC400" stroke-width="7" stroke-linecap="round"/>
-      <path d="M${cx} ${cy} L${nx.toFixed(1)} ${ny.toFixed(1)}" stroke="#fff" stroke-width="5" stroke-linecap="round"/><circle cx="${cx}" cy="${cy}" r="9" fill="#fff"/><circle cx="${cx}" cy="${cy}" r="4" fill="#17150F"/>
+      <g class="needle" style="--from:${(-(180 - ang(Math.max(0, real)) * 180 / Math.PI)).toFixed(1)}deg"><path d="M${cx} ${cy} L${nx.toFixed(1)} ${ny.toFixed(1)}" stroke="#fff" stroke-width="5" stroke-linecap="round"/></g><circle cx="${cx}" cy="${cy}" r="9" fill="#fff"/><circle cx="${cx}" cy="${cy}" r="4" fill="#17150F"/>
       <text x="${cx}" y="${cy + 42}" text-anchor="middle" class="g-big">${esc(inr(real))}</text><text x="${cx}" y="${cy + 62}" text-anchor="middle" class="g-sm">${esc(t('gauge_unit'))}</text>
     </svg>
     <div class="g-leg"><span><i style="background:#fff"></i>${esc(t('gauge_real'))}</span><span><i style="background:#FFC400"></i>${esc(t('gauge_apps', { v: inr(claimed) }))}</span><span><i style="background:#E4572E"></i>${esc(t('gauge_fair', { v: inr(fair) }))}</span></div>`;
@@ -248,6 +248,35 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
       <ol><li><button data-tour="listen">${t('tour_1')}</button></li><li><button data-tour="ask">${t('tour_2')}</button></li><li><button data-tour="wi">${t('tour_3')}</button></li><li><button data-tour="proof">${t('tour_4')}</button></li></ol></section>`;
   }
 
+  /** "Today": the first thing a rider sees when they open the app: how far along the day is, and the one action that matters now. */
+  function todayCardHTML(rep) {
+    if (S.demo) return '';
+    const hr = new Date().getHours(), greet = t(hr < 12 ? 'gr_morning' : hr < 17 ? 'gr_afternoon' : 'gr_evening'), first = S.user ? ' ' + esc(S.user.name.trim().split(/\s+/)[0]) : '';
+    const today = localDate(Date.now()), d = (rep.byDay || []).find(x => x.date === today), kept = d ? Math.max(0, d.net) : 0, goal = Math.max(100, S.goal || 800), pct = Math.min(100, Math.round(kept / goal * 100));
+    const C = 2 * Math.PI * 34, off = C * (1 - pct / 100), running = !!S.shift;
+    const plats = S.sessions.length ? S.sessions[S.sessions.length - 1].platform : 'Swiggy';
+    const sub = !d ? t('td_none') : pct >= 100 ? t('td_done') : t('td_togo', { n: inr(goal - kept) });
+    return `<section class="card today" id="today"><div class="td-top"><div><div class="eyebrow">${esc(dLabel(today, { weekday: 'long', day: 'numeric', month: 'long' }))}</div><h2 class="h2">${greet}${first}</h2></div>
+        <svg class="ring" viewBox="0 0 80 80" role="img" aria-label="${esc(t('td_goal'))}: ${pct}%"><circle cx="40" cy="40" r="34" class="ring-bg"/><circle cx="40" cy="40" r="34" class="ring-fg ${pct >= 100 ? 'full' : ''}" stroke-dasharray="${C.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}" transform="rotate(-90 40 40)" style="--c:${C.toFixed(1)};--o:${off.toFixed(1)}"/><text x="40" y="45" text-anchor="middle" class="ring-t">${pct}%</text></svg></div>
+      <div class="td-row"><div><div class="td-n num">${inr(kept)}</div><div class="note">${esc(t('td_kept_of', { g: inr(goal) }))} · ${esc(sub)}</div></div></div>
+      <div class="td-btns"><button class="btn lg ${running ? 'stop' : 'go'}" id="td-shift">${ic('bike')}${running ? t('sh_stop') + ' · <span id="td-t">' + fmtDur(Date.now() - S.shift.start) + '</span>' : t('sh_start')}</button>
+        <button class="btn lg alt" id="td-add">${ic('upload')}${t('add_shots')}</button></div></section>`;
+  }
+  const bindToday = v => {
+    const b = $('#td-shift', v); if (b) b.onclick = () => { if (S.shift) shiftStop(); else shiftStart(S.sessions.length ? S.sessions[S.sessions.length - 1].platform : 'Swiggy'); };
+    const a = $('#td-add', v); if (a) a.onclick = () => openSheet('import');
+  };
+  /** Numbers climb to their value and the speedometer needle sweeps in: the screen feels live, not printed. */
+  function animateHome(v) {
+    if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const el = $('.kept-n', v); if (!el || el.dataset.done === S.report.total.net.toFixed(0)) return;
+    const txt = el.textContent, target = Math.round(parseFloat(txt.replace(/[^0-9.]/g, '')) || 0), neg = /^[−-]/.test(txt), t0 = performance.now(), dur = 800;
+    if (!target) return;
+    const abs = Math.abs(target); el.dataset.done = S.report.total.net.toFixed(0);
+    const step = now => { const k = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - k, 3); el.textContent = (neg ? '−' : '') + '₹' + Math.round(abs * e).toLocaleString('en-IN'); if (k < 1) requestAnimationFrame(step); else el.textContent = txt; };
+    requestAnimationFrame(step);
+  }
+
   function renderHome() {
     const v = $('#view-home'), rep = S.report;
     if (!rep) return renderLanding(v);
@@ -265,6 +294,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
         <select id="period" class="sel" aria-label="${t('period_pick')}"><option value="period" ${sel === 'period' ? 'selected' : ''}>${t('period_all')}</option><option value="typical" ${sel === 'typical' ? 'selected' : ''}>${t('avg_day')}</option>${days.map(d => `<option value="${d}" ${d === sel ? 'selected' : ''}>${dLabel(d, { weekday: 'short', day: 'numeric', month: 'short' })}</option>`).join('')}</select></div>
       <div class="cols lead">
         <div class="stack">
+          ${todayCardHTML(rep)}
           <section class="kept-card"><div class="kept-lbl">${t('you_kept')} · ${esc(label)}</div>
             <div class="kept-n num ${r.net < 0 ? 'neg' : ''}">${inr(r.net)}</div>
             <p class="kept-sum">${esc(t('h_sum', { app: inr(r.appShown), kept: inr(r.net), real: inr(r.perHr), appHr: inr(r.appPerHr) }))}</p>
@@ -289,6 +319,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
         </div>
       </div>`;
     $('#period', v).onchange = e => { S.day = e.target.value; renderHome(); };
+    bindToday(v); animateHome(v);
     $('#a-check', v).onclick = () => setTab('check'); $('#a-add', v).onclick = () => openSheet('import'); $('#a-costs', v).onclick = () => openSheet('costs');
     $('#a-full', v).onclick = () => { S.fullCalc = !S.fullCalc; renderHome(); };
     $('#share', v).onclick = () => shareReceipt(r, label);
@@ -920,6 +951,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
   const hm = min => Math.floor(min / 60) + ':' + pad2(Math.round(min % 60));
   const localDate = ts => { const d = new Date(ts); return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); };
   function tick() {
+    const td = $('#td-t'); if (S.shift && td) td.textContent = fmtDur(Date.now() - S.shift.start);
     const a = $('#shift-t'); if (!S.shift || !a) return;
     a.textContent = fmtDur(Date.now() - S.shift.start); $('#shift-km').textContent = (S.shift.km || 0).toFixed(2);
     $('#shift-gps').textContent = S.shift.gps === 'off' ? t('sh_gps_off') : S.shift.gps === 'on' ? '' : t('sh_gps_wait');
@@ -1373,7 +1405,18 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     window.addEventListener('online', () => { if (S.user) pushData(); });
     boot();
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && S.user && typeof pushData === 'function') { try { pushData(); } catch (e) { /* retried on next open */ } } });
-    window.TWApp = { api, boot, doLogout, afterAuth, pushData, shiftStart, shiftStop, S, ui, loadDemo, setTab, openSheet, closeSheet, handleFiles, trySamples, sendAsk, offlineAnswer, askSummary };
+    (async function receiveShared() {      // screenshots sent here from the gallery's Share menu arrive through the service worker (see sw.js)
+      try {
+        if (!/[?&]share=\d/.test(location.search) || !window.caches) return;
+        const c = await caches.open('tw-share'), keys = await c.keys(), files = [];
+        for (const k of keys) { const r = await c.match(k); const b = await r.blob(); files.push(new File([b], r.headers.get('X-Name') || 'shared.png', { type: b.type || 'image/png' })); await c.delete(k); }
+        history.replaceState(null, '', location.pathname);
+        if (files.length) setTimeout(() => handleFiles(files), 600);
+      } catch (e) { /* sharing is optional */ }
+    })();
+    const go = (/[?&]go=(\w+)/.exec(location.search) || [])[1];       // home-screen shortcuts
+    if (go === 'check') setTimeout(() => setTab('check'), 300); else if (go === 'add') setTimeout(() => openSheet('import'), 400);
+    window.TWApp = { recompute, rerender, api, boot, doLogout, afterAuth, pushData, shiftStart, shiftStop, S, ui, loadDemo, setTab, openSheet, closeSheet, handleFiles, trySamples, sendAsk, offlineAnswer, askSummary };
   }
   init();
 })();

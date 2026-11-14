@@ -216,6 +216,10 @@
   Object.assign(L.hi, {"hist_an": "आपका विश्लेषण (सेव)"});
   Object.assign(L.te, {"hist_an": "మీ విశ్లేషణ (సేవ్ అయింది)"});
   Object.assign(L.ta, {"hist_an": "உங்கள் பகுப்பாய்வு (சேமிக்கப்பட்டது)"});
+  Object.assign(L.en, {"gr_morning": "Good morning", "gr_afternoon": "Good afternoon", "gr_evening": "Good evening", "td_goal": "Today's goal", "td_none": "add today's screenshots to see progress", "td_done": "goal reached", "td_togo": "{n} to go", "td_kept_of": "kept today · goal {g}"});
+  Object.assign(L.hi, {"gr_morning": "सुप्रभात", "gr_afternoon": "नमस्कार", "gr_evening": "शुभ संध्या", "td_goal": "आज का लक्ष्य", "td_none": "प्रगति देखने के लिए आज के स्क्रीनशॉट जोड़ें", "td_done": "लक्ष्य पूरा", "td_togo": "{n} बाकी", "td_kept_of": "आज बचे · लक्ष्य {g}"});
+  Object.assign(L.te, {"gr_morning": "శుభోదయం", "gr_afternoon": "నమస్కారం", "gr_evening": "శుభ సాయంత్రం", "td_goal": "ఈరోజు లక్ష్యం", "td_none": "పురోగతి చూడటానికి ఈరోజు స్క్రీన్‌షాట్లు జోడించండి", "td_done": "లక్ష్యం పూర్తయింది", "td_togo": "{n} మిగిలింది", "td_kept_of": "ఈరోజు మిగిలింది · లక్ష్యం {g}"});
+  Object.assign(L.ta, {"gr_morning": "காலை வணக்கம்", "gr_afternoon": "வணக்கம்", "gr_evening": "மாலை வணக்கம்", "td_goal": "இன்றைய இலக்கு", "td_none": "முன்னேற்றத்தைக் காண இன்றைய ஸ்கிரீன்ஷாட்களைச் சேர்க்கவும்", "td_done": "இலக்கு எட்டப்பட்டது", "td_togo": "{n} மீதம்", "td_kept_of": "இன்று மிஞ்சியது · இலக்கு {g}"});
   let lang = 'en';
   function t(k, vars) {
     let s = (L[lang] && L[lang][k]) || L.en[k] || k;
