@@ -200,10 +200,15 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     </svg>
     <div class="g-leg"><span><i style="background:#fff"></i>${esc(t('gauge_real'))}</span><span><i style="background:#FFC400"></i>${esc(t('gauge_apps', { v: inr(claimed) }))}</span><span><i style="background:#E4572E"></i>${esc(t('gauge_fair', { v: inr(fair) }))}</span></div>`;
   }
+  function checklistHTML() {
+    const steps = [[S.sessions.length > 0, 'ck_1', 'import'], [(S.expenses || []).some(e => e.category === 'fuel'), 'ck_2', 'expenses'], [S.shifts.length > 0, 'ck_3', null]], done = steps.filter(x => x[0]).length;
+    return `<section class="card checklist"><div class="rows between"><h3 class="h3">${t('ck_h')}</h3><span class="pill">${done}/3</span></div><ol class="ck">${steps.map(([ok, k, sheet]) => `<li class="${ok ? 'done' : ''}"><span class="tick" aria-hidden="true">${ok ? '✓' : ''}</span><span>${t(k)}</span>${!ok && sheet ? `<button class="link" data-ck="${sheet}">${t('ck_go')}</button>` : ''}</li>`).join('')}</ol></section>`;
+  }
   function renderWelcome(v) {
     v.innerHTML = `<div class="welcome stack"><div><h1 class="h2" style="font-size:32px">${esc(t('au_welcome', { name: S.user.name }))}</h1><p class="muted" style="margin-top:6px">${t('au_welcome_p')}</p></div>
-      <button class="btn lg" id="w-add">${ic('upload')}${t('add_shots')}</button>${shiftCardHTML(null)}
+      ${checklistHTML()}<button class="btn lg" id="w-add">${ic('upload')}${t('add_shots')}</button>${shiftCardHTML(null)}
       <section class="card"><h3 class="h3" style="margin-bottom:10px">${t('au_demo_h')}</h3><div class="rows"><button class="btn alt" id="w-hyd">${t('dm_hyd')}</button><button class="btn alt" id="w-blr">${t('dm_blr')}</button></div></section></div>`;
+    $$('[data-ck]', v).forEach(b => b.onclick = () => openSheet(b.dataset.ck));
     $('#w-add', v).onclick = () => openSheet('import'); $('#w-hyd', v).onclick = () => loadDemo('Hyderabad'); $('#w-blr', v).onclick = () => loadDemo('Bengaluru'); bindShift(v);
   }
   function renderLanding(v) {
@@ -248,6 +253,17 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
       <ol><li><button data-tour="listen">${t('tour_1')}</button></li><li><button data-tour="ask">${t('tour_2')}</button></li><li><button data-tour="wi">${t('tour_3')}</button></li><li><button data-tour="proof">${t('tour_4')}</button></li></ol></section>`;
   }
 
+  function streakInfo(rep) {
+    const days = new Set(rep.byDay.map(d => d.date)); let n = 0; const d = new Date();
+    if (!days.has(localDate(d.getTime()))) d.setDate(d.getDate() - 1);
+    while (days.has(localDate(d.getTime()))) { n++; d.setDate(d.getDate() - 1); }
+    return { n, best: Math.max.apply(null, rep.byDay.map(x => x.net)) };
+  }
+  function shareToday(rep) {
+    const today = localDate(Date.now()), d = (rep.byDay || []).find(x => x.date === today) || rep.byDay[rep.byDay.length - 1];
+    const txt = t('td_share_txt', { date: dLabel(d.date, { day: 'numeric', month: 'short' }), kept: inr(d.net), app: inr(d.appShown), real: inr(d.perHr) });
+    if (navigator.share) navigator.share({ text: txt }).catch(() => { /* cancelled */ }); else window.open('https://wa.me/?text=' + encodeURIComponent(txt), '_blank', 'noopener');
+  }
   /** "Today": the first thing a rider sees when they open the app: how far along the day is, and the one action that matters now. */
   function todayCardHTML(rep) {
     if (S.demo) return '';
@@ -259,12 +275,14 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     return `<section class="card today" id="today"><div class="td-top"><div><div class="eyebrow">${esc(dLabel(today, { weekday: 'long', day: 'numeric', month: 'long' }))}</div><h2 class="h2">${greet}${first}</h2></div>
         <svg class="ring" viewBox="0 0 80 80" role="img" aria-label="${esc(t('td_goal'))}: ${pct}%"><circle cx="40" cy="40" r="34" class="ring-bg"/><circle cx="40" cy="40" r="34" class="ring-fg ${pct >= 100 ? 'full' : ''}" stroke-dasharray="${C.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}" transform="rotate(-90 40 40)" style="--c:${C.toFixed(1)};--o:${off.toFixed(1)}"/><text x="40" y="45" text-anchor="middle" class="ring-t">${pct}%</text></svg></div>
       <div class="td-row"><div><div class="td-n num">${inr(kept)}</div><div class="note">${esc(t('td_kept_of', { g: inr(goal) }))} · ${esc(sub)}</div></div></div>
+      <div class="td-chips"><span class="pill">${esc(t('td_streak', { n: streakInfo(rep).n }))}</span><span class="pill">${esc(t('td_best', { v: inr(streakInfo(rep).best) }))}</span><button class="link" id="td-share">${ic('share')} ${t('td_share')}</button></div>
       <div class="td-btns"><button class="btn lg ${running ? 'stop' : 'go'}" id="td-shift">${ic('bike')}${running ? t('sh_stop') + ' · <span id="td-t">' + fmtDur(Date.now() - S.shift.start) + '</span>' : t('sh_start')}</button>
         <button class="btn lg alt" id="td-add">${ic('upload')}${t('add_shots')}</button></div></section>`;
   }
   const bindToday = v => {
     const b = $('#td-shift', v); if (b) b.onclick = () => { if (S.shift) shiftStop(); else shiftStart(S.sessions.length ? S.sessions[S.sessions.length - 1].platform : 'Swiggy'); };
     const a = $('#td-add', v); if (a) a.onclick = () => openSheet('import');
+    const sh = $('#td-share', v); if (sh) sh.onclick = () => shareToday(S.report);
   };
   /** Numbers climb to their value and the speedometer needle sweeps in: the screen feels live, not printed. */
   function animateHome(v) {
@@ -575,12 +593,26 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     if (!S.oc) S.oc = rep ? { pay: rd(rep.total.appShown / rep.total.n), km: Math.round(rep.total.km / rep.total.n * 10) / 10 } : { pay: 45, km: 3 };
     const presets = [[30, 4], [45, 3], [60, 2], [80, 6]];
     v.innerHTML = `<h2 class="h2">${t('oc_h')}</h2><p class="muted" style="margin:6px 0 20px;max-width:60ch">${t('oc_sub')}</p>
+      <div class="scanbox"><button class="btn lg alt" id="oc-scan">${ic('image')}${t('oc_scan')}</button><small class="note">${t('oc_scan_hint')}</small></div>
       <div class="oc"><div>
         <label class="fl" for="oc-pay">${t('oc_pay')}</label><div class="bigfield"><span>₹</span><input id="oc-pay" type="number" inputmode="decimal" min="0" value="${S.oc.pay}"></div>
         <label class="fl" for="oc-km">${t('oc_km')}</label><div class="bigfield"><input id="oc-km" type="number" inputmode="decimal" step="0.1" min="0" value="${S.oc.km}"><span style="font-size:20px">km</span></div>
         <input type="range" id="oc-r" min="0.5" max="15" step="0.1" value="${Math.min(15, S.oc.km)}" aria-label="${t('oc_km')}">
         <div class="chips">${presets.map(([p, k]) => `<button data-p="${p}" data-k="${k}">₹${p} · ${k} km</button>`).join('')}</div>
         ${rep ? '' : `<p class="note" style="margin-top:8px">${t('empty_p')}</p>`}</div><div id="oc-out"></div></div>`;
+    $('#oc-scan', v).onclick = () => {      // screenshot of a new order offer -> amount and distance -> verdict
+      const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/png,image/jpeg,image/webp';
+      inp.onchange = async () => {
+        const f = inp.files && inp.files[0]; if (!f) return; toast(t('oc_scanning'));
+        try {
+          const url = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(f); });
+          const out = await R.readDataUrls([url], () => {}, false);
+          const o = out.offers && out.offers[0];
+          if (o) { S.oc = { pay: o.pay, km: o.km }; renderCheck(); toast(t('offer_found')); } else toast(t('oc_scan_none'));
+        } catch (e) { toast(t('oc_scan_none')); }
+      };
+      inp.click();
+    };
     const pay = $('#oc-pay', v), km = $('#oc-km', v), rg = $('#oc-r', v);
     const upd = () => { S.oc = { pay: Math.max(0, parseFloat(pay.value) || 0), km: Math.max(0, parseFloat(km.value) || 0) }; if (S.oc.km <= 15) rg.value = S.oc.km; drawCheck(); };
     pay.oninput = upd; km.oninput = upd; rg.oninput = () => { km.value = rg.value; upd(); };

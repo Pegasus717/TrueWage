@@ -563,3 +563,96 @@ a.link,button.link{color:var(--ink);font-weight:600;text-decoration:underline;te
 .card:hover{box-shadow:0 2px 4px rgba(15,23,42,.06),0 10px 24px rgba(15,23,42,.08)}
 .tabbar button svg{transition:transform .2s ease}.tabbar button[aria-current=page] svg{transform:translateY(-1px) scale(1.08)}
 @media(prefers-reduced-motion:reduce){.cols.lead .stack>*,.ring-fg,.gauge .needle{animation:none!important}}
+
+/* ================= v19: "The Honest Meter" identity =================
+   A taxi fare meter and a paper receipt. Charcoal bezels with amber seven-segment numerals for the money,
+   warm ledger paper for everything you read, tactile amber keys for actions. Space Grotesk, IBM Plex Mono, Inter. */
+@font-face{font-family:"DSEG7";src:url("https://cdn.jsdelivr.net/npm/dseg@0.46.0/fonts/DSEG7-Classic/DSEG7Classic-Bold.woff2") format("woff2");font-weight:700;font-display:swap}
+:root{--paper:#EFEBE2;--paper2:#FFFDF7;--ink:#14110A;--ink2:#52493A;--ink3:#7A705C;--rule:#DDD5C3;--bezel:#0E1116;--bezel2:#171C24;--bezel-line:#2A313C;
+  --amber:#FFB020;--amber-d:#B87900;--glow:rgba(255,176,32,.45);--accent:#0B8A55;--kept:#0B7A4B;--kept-bg:#DDF3E6;--lost:#C2371F;--lost-bg:#FBE4DE;--warn:#8A5700;--warn-bg:#FBEBC8;
+  --head:"Space Grotesk","Inter",system-ui,"Noto Sans Devanagari","Noto Sans Telugu","Noto Sans Tamil",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;--lcd:"DSEG7","IBM Plex Mono",ui-monospace,monospace;--serif:var(--head);--bg:var(--paper);--r:6px}
+body{background-color:var(--paper);background-image:linear-gradient(rgba(60,45,15,.045) 1px,transparent 1px);background-size:100% 28px;color:var(--ink)}
+h1,h2,h3,.h2,.h3{font-family:var(--head);letter-spacing:-.3px}
+.h2{font-weight:700}.h3{font-weight:700}
+.eyebrow{font:600 12px/1.2 var(--mono);text-transform:uppercase;letter-spacing:.09em;color:var(--ink3);margin-bottom:6px}
+.eyebrow::before{content:"";display:inline-block;width:8px;height:8px;background:var(--amber);margin-right:8px;border-radius:2px;vertical-align:1px}
+.note,.muted{color:var(--ink2)}
+.num,.stats .v,.v.num,.verdict .word,.bigfield input,.shift-big .num{font-family:var(--mono);font-weight:600;font-variant-numeric:tabular-nums}
+/* header and tabs: the bezel */
+.bar{background:var(--bezel);border-bottom:2px solid var(--amber);color:#F5F1E6}
+.logo{color:#F5F1E6;font:700 17px/1 var(--head);letter-spacing:.14em;text-transform:uppercase}
+.logo svg{width:30px;height:30px}
+.nav button{color:#9AA3B2}.nav button[aria-current=page]{color:#fff;border-bottom:3px solid var(--amber)}
+.bar .btn{background:var(--amber);color:#14110A;border:0;box-shadow:0 2px 0 var(--amber-d);border-radius:8px}
+.bar .sel,#btn-acct{background-color:var(--bezel2);border:1px solid var(--bezel-line);color:#F5F1E6}
+#btn-acct svg{stroke:#F5F1E6}
+.bar .sel{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='7' fill='none' stroke='%23F5F1E6' stroke-width='1.8'%3E%3Cpath d='M1 1l5 5 5-5'/%3E%3C/svg%3E")}
+.tabbar{background:var(--bezel);border-top:2px solid var(--amber)}
+.tabbar button{color:#8B94A3;font:600 11px var(--mono);letter-spacing:.02em}
+.tabbar button[aria-current=page]{color:var(--amber)}.tabbar button[aria-current=page] svg{stroke:var(--amber)}
+.tabbar button[aria-current=page]::before{background:var(--amber);height:3px;left:30%;right:30%;border-radius:0 0 3px 3px}
+/* keys: tactile amber buttons */
+.btn{background:var(--amber);color:#14110A;border:0;border-radius:10px;box-shadow:0 3px 0 var(--amber-d);font:700 16px var(--head);letter-spacing:.01em}
+.btn:hover{background:#FFBC3D}.btn:active{transform:translateY(3px);box-shadow:0 0 0 var(--amber-d)}
+.btn.alt{background:var(--paper2);color:var(--ink);border:1.5px solid #14110A;box-shadow:0 3px 0 #14110A}
+.btn.alt:hover{background:#fff}.btn.alt:active{box-shadow:0 0 0 #14110A}
+.btn.danger{background:var(--paper2);color:var(--lost);border:1.5px solid var(--lost);box-shadow:0 3px 0 var(--lost)}
+.btn.stop{background:var(--lost);color:#fff;box-shadow:0 3px 0 #7F2210}
+#l-signup,.acts .btn:first-child,.btn.go,#au-go{background:var(--amber);border:0;color:#14110A}
+.btn.sm{box-shadow:0 2px 0 var(--amber-d)}.btn.alt.sm{box-shadow:0 2px 0 #14110A}
+.btn[disabled]{box-shadow:none;opacity:.4}
+a.link,button.link{color:var(--ink);text-decoration-color:var(--amber);text-decoration-thickness:3px}
+#fab,.fab{background:var(--bezel);color:var(--amber);border:2px solid var(--amber);box-shadow:0 4px 0 #000}
+#fab svg,.fab svg{stroke:var(--amber)}
+/* receipts: every card is a slip of paper with a torn edge */
+.card,.next,.today{position:relative;background:var(--paper2);border:1px solid var(--rule);border-radius:var(--r);box-shadow:0 1px 0 #fff inset,0 8px 20px rgba(60,45,15,.1);margin-bottom:6px}
+.card::after,.next::after,.today::after{content:"";position:absolute;left:0;right:0;bottom:-7px;height:7px;background:radial-gradient(circle at 6px -1px,transparent 5px,var(--paper2) 5.5px) repeat-x;background-size:12px 7px;filter:drop-shadow(0 2px 1px rgba(60,45,15,.08))}
+.next{border-left:5px solid var(--amber)}
+.card.offer{border-left:5px solid var(--amber)}
+.pill{background:#FFF1CC;color:#6B4600;border:1px solid #F0CF86;font:600 12px var(--mono)}
+.stats .k,.k{font:600 11px var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--ink3)}
+.best-slot{background:#FFF1CC;border:1px dashed #C98600;color:#6B4600;border-radius:6px;font-family:var(--mono);font-weight:600;font-size:14px}
+.status{border-radius:6px}.status.ok{background:var(--kept-bg);color:var(--kept)}
+.hm td{border-radius:4px}
+/* the fare meter */
+.kept-card{background:linear-gradient(180deg,#141922 0%,#0B0E13 100%);border:1px solid var(--bezel-line);border-radius:14px;box-shadow:inset 0 0 0 4px #0B0E13,inset 0 0 0 5px var(--bezel-line),0 14px 30px rgba(0,0,0,.35);padding:26px 24px 24px;margin-bottom:6px}
+.kept-card::after,.kept-card::before{display:none}
+.kept-card .kept-lbl{font:600 12px var(--mono);text-transform:uppercase;letter-spacing:.14em;color:#8B94A3}
+.kept-card .kept-n{font:700 clamp(38px,11.5vw,62px)/1.15 var(--lcd);color:var(--amber);text-shadow:0 0 14px var(--glow),0 0 2px rgba(255,176,32,.9);letter-spacing:.02em;margin:10px 0 12px}
+.kept-card .kept-n.neg{color:#FF7A66;text-shadow:0 0 14px rgba(255,122,102,.45)}
+.kept-card .kept-sum{color:#C9CFDA}.kept-card .kept-sum b{color:var(--amber)}
+.kept-card .kbar{background:#222934;height:12px;border-radius:3px;border:1px solid var(--bezel-line)}
+.kept-card .kbar i{background:repeating-linear-gradient(90deg,var(--amber) 0 6px,transparent 6px 8px);border-radius:0}
+.kept-card .kbar-l,.g-leg{color:#8B94A3;font-family:var(--mono);font-size:12px}
+.gauge .g-big{font-family:var(--lcd);fill:var(--amber);font-weight:700;font-size:34px;filter:drop-shadow(0 0 6px var(--glow))}.gauge .g-sm{font-family:var(--mono);fill:#8B94A3}
+.gauge .needle path{stroke:var(--amber)}
+/* today slip */
+.td-n{font:700 38px/1.15 var(--lcd);color:#14110A;letter-spacing:.02em}
+.td-top .h2{font-size:24px}
+.ring-bg{stroke:#E4DCC8}.ring-fg{stroke:var(--amber)}.ring-t{font-family:var(--mono);font-weight:600}
+/* inputs, sheets, toasts */
+.field input,.field select,.sel{background-color:var(--paper2);border:1.5px solid #B9AE95;border-radius:6px;color:var(--ink)}
+.field input:focus,.field select:focus,:focus-visible{border-color:var(--amber-d);box-shadow:0 0 0 3px rgba(255,176,32,.4);outline:none}
+.sheet-in{background:var(--paper);border:0;border-top:3px solid var(--amber);border-radius:16px 16px 0 0}
+.toast{background:var(--bezel);color:var(--amber);border:1px solid var(--amber);border-radius:8px;font-family:var(--mono);font-weight:600}
+.seg button{border-radius:6px;border:1.5px solid #14110A;background:var(--paper2)}.seg button[aria-pressed=true]{background:#14110A;color:var(--amber)}
+.chips button{border-radius:6px;border:1.5px solid #14110A;background:var(--paper2);color:var(--ink)}
+.drop{border:2px dashed #14110A;background:var(--paper2);border-radius:8px}.drop.over{background:#FFF1CC}
+.hl,.hero h1 em{background:linear-gradient(transparent 60%,var(--amber) 60%)}
+.hero h1{font:700 clamp(32px,8vw,48px)/1.08 var(--head);letter-spacing:-1.4px}
+.steps .n{background:#14110A;color:var(--amber);font-family:var(--mono);border-radius:6px}
+.verdict{border-radius:8px}
+
+/* v19b: upgrades */
+.logo svg rect:first-child{fill:var(--amber)}
+.td-chips{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 12px}
+.td-chips .link{margin-left:auto;display:inline-flex;gap:6px;align-items:center;font-size:14px}
+.td-chips .link svg{width:18px;height:18px}
+.scanbox{display:flex;flex-direction:column;gap:6px;margin:0 0 16px}
+.checklist .ck{list-style:none;margin:10px 0 0;padding:0}
+.checklist .ck li{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px dashed var(--rule)}
+.checklist .ck li:last-child{border-bottom:0}
+.checklist .tick{flex:none;width:24px;height:24px;border:2px solid #14110A;border-radius:6px;display:grid;place-items:center;font-weight:800;background:var(--paper2)}
+.checklist .done .tick{background:var(--amber)}.checklist .done span:nth-child(2){color:var(--ink3);text-decoration:line-through}
+.checklist .ck li>span:nth-child(2){flex:1}

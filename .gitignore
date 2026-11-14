@@ -5,3 +5,7 @@ __pycache__/
 registry.json
 *.db
 secret.key
+tests/real/*.png
+tests/real/*.jpg
+tests/real/*.jpeg
+tests/real/*.webp

@@ -57,3 +57,11 @@ Speedometer dashboard, place detection from addresses and GPS, expenses with rea
 * Docker and Vultr deployment are documented but were not executed.
 * Accounts: no SMS/email verification or password recovery; tested locally and by automated tests, not under load or on a real deployment.
 * On-device OCR is verified on the bundled samples and on generated screenshots of several styles (dark theme, low resolution, no ₹ sign, totals-only), not on real partner-app screenshots. Test yours before the demo; the review step catches the rest.
+
+## 7. The 2-minute demo video (record this on a real phone)
+1. **0:00 The problem (10 s).** "The app says Ravi earned ₹35,235 this month." Show the landing screen.
+2. **0:10 The moment (25 s).** Open the demo rider: the amber fare meter shows **₹20,365 kept**, the speedometer needle lands on **₹81 an hour** against **₹141** the apps imply and the ₹90 fair-wage line. Say it plainly: "He earns less than the fair-wage line and nobody told him."
+3. **0:35 Real data (40 s).** On your own account, share a real earnings screenshot from the gallery into TrueWage. Claude reads it; show the review screen flagging anything guessed; tap Save. The Today slip updates (goal ring, streak).
+4. **1:15 Decide (20 s).** Check order tab: scan a real order offer screenshot, get Take / Skip with the maths.
+5. **1:35 Trust (15 s).** My history and the CSV export; open Supabase's Table Editor to show the rider's own rows; each rider sees only their own data.
+6. **1:50 Close (10 s).** "One honest number for the rider, the union and the bank." Show your measured accuracy number from `tools/accuracy_eval.py` and how many riders tried it.
