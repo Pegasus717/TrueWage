@@ -1,0 +1,19 @@
+# Docker-free option: sudo cp deploy/truewage.service /etc/systemd/system/ && sudo systemctl enable --now truewage
+[Unit]
+Description=TrueWage
+After=network.target
+
+[Service]
+User=truewage
+WorkingDirectory=/opt/truewage
+EnvironmentFile=-/opt/truewage/.env
+Environment=PORT=8080 TRUEWAGE_DATA=/var/lib/truewage
+ExecStart=/usr/bin/python3 /opt/truewage/server.py
+Restart=on-failure
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/truewage
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,25 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: node tests/engine.test.js
+      - run: python -m unittest discover -s tests
+      - name: smoke test a running server
+        run: |
+          python server.py & sleep 2
+          python tools/smoke.py http://127.0.0.1:8080
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t truewage .
+      - run: |
+          docker run -d --name tw -p 8080:8080 truewage && sleep 4
+          python3 tools/smoke.py http://127.0.0.1:8080

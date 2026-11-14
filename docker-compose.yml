@@ -1,0 +1,28 @@
+# docker compose up -d --build                      -> app on http://SERVER_IP:8080
+# DOMAIN=truewage.example.com docker compose --profile https up -d --build   -> HTTPS on 443 via Caddy (auto certificates)
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}      # optional; read from .env next to this file
+      TRUEWAGE_MODEL: ${TRUEWAGE_MODEL:-claude-sonnet-5-5}
+      TRUEWAGE_TRUST_PROXY: ${TRUEWAGE_TRUST_PROXY:-0}
+    volumes:
+      - truewage-data:/data
+    ports:
+      - "${APP_PORT:-8080}:8080"
+  caddy:
+    image: caddy:2
+    profiles: ["https"]
+    restart: unless-stopped
+    depends_on: [app]
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN to your domain name}
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+volumes:
+  truewage-data:
+  caddy-data:
