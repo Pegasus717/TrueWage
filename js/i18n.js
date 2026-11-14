@@ -208,6 +208,10 @@
   Object.assign(L.hi, {"gauge_unit": "प्रति घंटा, असल में", "gauge_real": "आप असल में कमाते हैं", "gauge_apps": "ऐप दिखाते हैं {v}", "gauge_fair": "उचित मज़दूरी {v}", "gauge_aria": "स्पीडोमीटर: आप असल में {real} प्रति घंटा कमाते हैं, ऐप {app} दिखाते हैं, उचित मज़दूरी {fair}"});
   Object.assign(L.te, {"gauge_unit": "గంటకు, నిజంగా", "gauge_real": "మీరు నిజంగా సంపాదిస్తున్నది", "gauge_apps": "యాప్‌లు చూపేది {v}", "gauge_fair": "న్యాయమైన వేతనం {v}", "gauge_aria": "స్పీడోమీటర్: మీరు నిజంగా గంటకు {real} సంపాదిస్తున్నారు, యాప్‌లు {app} చూపుతున్నాయి, న్యాయమైన వేతనం {fair}"});
   Object.assign(L.ta, {"gauge_unit": "மணிக்கு, உண்மையில்", "gauge_real": "நீங்கள் உண்மையில் சம்பாதிப்பது", "gauge_apps": "ஆப்கள் காட்டுவது {v}", "gauge_fair": "நியாய ஊதியம் {v}", "gauge_aria": "வேகமானி: நீங்கள் உண்மையில் மணிக்கு {real} சம்பாதிக்கிறீர்கள், ஆப்கள் {app} காட்டுகின்றன, நியாய ஊதியம் {fair}"});
+  Object.assign(L.en, {"adm_h": "Admin overview", "adm_riders": "Riders", "adm_ai": "AI images today", "adm_note": "{i} screenshot reads, {s} statements, {c} city contributions, {a} cached AI readings.", "adm_list": "All riders", "adm_last": "Last active", "ev_saved": "Saved"});
+  Object.assign(L.hi, {"adm_h": "एडमिन अवलोकन", "adm_riders": "राइडर", "adm_ai": "आज AI इमेज", "adm_note": "{i} स्क्रीनशॉट पठन, {s} विवरण, {c} शहर योगदान, {a} कैश्ड AI पठन।", "adm_list": "सभी राइडर", "adm_last": "आख़िरी सक्रियता", "ev_saved": "सेव किया"});
+  Object.assign(L.te, {"adm_h": "అడ్మిన్ అవలోకనం", "adm_riders": "రైడర్లు", "adm_ai": "ఈరోజు AI చిత్రాలు", "adm_note": "{i} స్క్రీన్‌షాట్ రీడ్‌లు, {s} ప్రకటనలు, {c} నగర సహకారాలు, {a} కాష్ AI రీడింగ్‌లు.", "adm_list": "అన్ని రైడర్లు", "adm_last": "చివరి క్రియాశీలత", "ev_saved": "సేవ్ చేశారు"});
+  Object.assign(L.ta, {"adm_h": "நிர்வாக மேலோட்டம்", "adm_riders": "ரைடர்கள்", "adm_ai": "இன்று AI படங்கள்", "adm_note": "{i} ஸ்கிரீன்ஷாட் வாசிப்புகள், {s} அறிக்கைகள், {c} நகர பங்களிப்புகள், {a} சேமித்த AI வாசிப்புகள்.", "adm_list": "அனைத்து ரைடர்கள்", "adm_last": "கடைசி செயல்பாடு", "ev_saved": "சேமிக்கப்பட்டது"});
   let lang = 'en';
   function t(k, vars) {
     let s = (L[lang] && L[lang][k]) || L.en[k] || k;

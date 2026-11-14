@@ -26,5 +26,7 @@ services:
         value: "400"
       - key: DATABASE_URL              # your Supabase Session pooler string (you type it in Render, it is never in git)
         sync: false
+      - key: TRUEWAGE_ADMIN_PHONES     # your own 10-digit phone number: that account gets an Admin overview screen
+        sync: false
       - key: ANTHROPIC_API_KEY         # your Claude key (typed in Render, never in git)
         sync: false

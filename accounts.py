@@ -28,6 +28,7 @@ PROFILE_KEYS = {"mileage", "fuelPrice", "maintPerKm", "deadKm", "dataPerHour", "
 FLAGS = {"shared", "vehicleOk", "tourDone", "big", "demo"}
 EXPENSE_CATS = {"fuel", "parking_toll", "fine", "repair", "other"}
 AI_USER_DAILY = int(os.environ.get("TRUEWAGE_AI_USER_DAILY", "60"))      # images one rider may have read by AI per day
+ADMIN_PHONES = {x.strip() for x in os.environ.get("TRUEWAGE_ADMIN_PHONES", "").split(",") if x.strip()}   # riders who may open the admin overview
 AI_USER_ASKS = int(os.environ.get("TRUEWAGE_AI_USER_ASKS", "100"))        # Ask questions per rider per day      # images one rider may have read by AI per day
 
 _lock = threading.Lock()
@@ -101,8 +102,12 @@ def check_password(pw):
     return pw
 
 
+def is_admin(u):
+    return bool(u) and u["phone"] in ADMIN_PHONES
+
+
 def public(u):
-    return {"id": u["id"], "name": u["name"], "phone4": u["phone"][-4:], "phoneMasked": "XXXXXX" + u["phone"][-4:], "lang": u["lang"]}
+    return {"id": u["id"], "name": u["name"], "phone4": u["phone"][-4:], "phoneMasked": "XXXXXX" + u["phone"][-4:], "lang": u["lang"], "admin": is_admin(u)}
 
 
 # ---------------- sessions ----------------
@@ -320,6 +325,32 @@ def _mirror(c, uid, new, old):
         c.executemany(UP_EXP, [(uid, x["id"] or "e%d" % i, x["date"], x["category"], x["amount"], x["litres"], x["odo"], x["note"]) for i, x in enumerate(new["expenses"])])
 
 
+def _change_note(old, new):
+    """Short human note about what a save added or removed, e.g. '+2 days, +17 orders, +1 expense'. None when nothing record-like changed."""
+    def ids(d, k):
+        return {x.get("id") for x in (d.get(k) or [])}
+    parts = []
+    if "sessions" in new:
+        added = ids(new, "sessions") - ids(old, "sessions")
+        gone = ids(old, "sessions") - ids(new, "sessions")
+        n_orders = sum(len(x["orders"]) for x in new["sessions"] if x["id"] in added)
+        if added:
+            parts.append("+%d day%s, +%d orders" % (len(added), "" if len(added) == 1 else "s", n_orders))
+        if gone:
+            parts.append("-%d day%s" % (len(gone), "" if len(gone) == 1 else "s"))
+    if "expenses" in new:
+        a, g = len(ids(new, "expenses") - ids(old, "expenses")), len(ids(old, "expenses") - ids(new, "expenses"))
+        if a:
+            parts.append("+%d expense%s" % (a, "" if a == 1 else "s"))
+        if g:
+            parts.append("-%d expense%s" % (g, "" if g == 1 else "s"))
+    if "shifts" in new:
+        a = len(ids(new, "shifts") - ids(old, "shifts"))
+        if a:
+            parts.append("+%d shift%s" % (a, "" if a == 1 else "s"))
+    return ", ".join(parts) or None
+
+
 def put_data(user_id, data, base_version):
     cleaned, blob = clean_userdata(data)
     with _conn() as c:
@@ -335,6 +366,9 @@ def put_data(user_id, data, base_version):
         c.execute("INSERT INTO userdata(user_id,json,version,updated) VALUES(?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET json=excluded.json, version=excluded.version, updated=excluded.updated",
                   (user_id, blob, cur + 1, int(time.time())))
         _mirror(c, user_id, cleaned, old)
+        note = _change_note(old, cleaned)
+        if note:
+            c.execute("INSERT INTO events(user_id,ts,kind,detail) VALUES(?,?,?,?)", (user_id, int(time.time()), "saved", note))
         return cur + 1
 
 
@@ -413,3 +447,25 @@ def ai_spend(user_id, images=0, asks=0):
 def rider_id(user_id):
     """Stable anonymous contributor id for the city analytics: HMAC of the account id, not reversible without the server secret."""
     return hmac.new(_SECRET, ("rid:%d" % user_id).encode(), hashlib.sha256).hexdigest()[:24]
+
+
+def admin_overview():
+    """Totals and one row per rider (phone masked). Only reachable by riders listed in TRUEWAGE_ADMIN_PHONES."""
+    with _conn() as c:
+        def one(sql):
+            return c.execute(sql).fetchone()
+        tot = {"riders": one("SELECT COUNT(*) AS n FROM users")["n"], "days": one("SELECT COUNT(*) AS n FROM work_sessions")["n"],
+               "orders": one("SELECT COUNT(*) AS n FROM orders")["n"], "expenses": one("SELECT COUNT(*) AS n FROM expenses")["n"],
+               "imports": one("SELECT COUNT(*) AS n FROM imports")["n"], "statements": one("SELECT COUNT(*) AS n FROM statements")["n"],
+               "contributions": one("SELECT COUNT(*) AS n FROM contributions")["n"], "aiCached": one("SELECT COUNT(*) AS n FROM extract_cache")["n"]}
+        day = time.strftime("%Y-%m-%d")
+        b = c.execute("SELECT images FROM ai_budget WHERE day=?", (day,)).fetchone()
+        tot["aiImagesToday"] = b["images"] if b else 0
+        rows = [dict(r) for r in c.execute(
+            "SELECT u.id, u.name, u.phone, u.lang, u.created, "
+            "(SELECT COUNT(*) FROM work_sessions w WHERE w.user_id=u.id) AS days, (SELECT COUNT(*) FROM orders o WHERE o.user_id=u.id) AS orders, "
+            "(SELECT COUNT(*) FROM expenses e WHERE e.user_id=u.id) AS expenses, (SELECT COUNT(*) FROM imports i WHERE i.user_id=u.id) AS imports, "
+            "(SELECT MAX(ts) FROM events v WHERE v.user_id=u.id) AS last_active FROM users u ORDER BY u.id DESC LIMIT 200").fetchall()]
+    for r in rows:
+        r["phone"] = "XXXXXX" + r["phone"][-4:]
+    return {"totals": tot, "riders": rows}

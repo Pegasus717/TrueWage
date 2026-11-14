@@ -29,6 +29,31 @@ python server.py                       # GET /api/health now reports "db": "post
 
 `db_check.py` creates the tables, registers a throw-away rider, saves data, reads history and the CSV, checks the quota, the statement registry, city contributions and cascade deletion, and then removes everything it created.
 
+## Where to see the users and their data in Supabase
+
+TrueWage keeps its tables in their own schema called **`truewage`**, not in `public`, so the Table Editor does not show them until you switch:
+
+1. Open your project, click **Table Editor** (left menu).
+2. At the top-left there is a schema dropdown that says `public`. Change it to **`truewage`**.
+3. You now see the tables:
+   * `users` (id, phone, name, password hash, language, created): the list of riders
+   * `userdata` (each rider's full saved document), `work_sessions` and `orders` (the rider's days and every order), `shifts`, `expenses`
+   * `imports` (every screenshot reading), `statements`, `events` (sign-up, login, saves, exports), `ai_usage` (per rider per day)
+   * `registry`, `contributions`, `extract_cache`, `ai_budget`, `kv` (server-wide)
+
+The **Authentication > Users** page of Supabase stays empty on purpose: TrueWage does its own login (phone + password, hashed with scrypt) and does not use Supabase Auth.
+
+In the **SQL Editor** you can run, for example:
+
+```sql
+select id, name, created from truewage.users order by id;
+select u.name, count(distinct w.sid) as days, count(o.*) as orders
+from truewage.users u left join truewage.work_sessions w on w.user_id=u.id
+left join truewage.orders o on o.user_id=u.id and o.sid=w.sid group by u.name;
+```
+
+Inside the app, set `TRUEWAGE_ADMIN_PHONES=<your 10-digit phone>` (in `.env` or Render's environment) and sign in with that number: **My account > Admin overview** lists every rider (phone masked) with their days, orders, screenshot reads and last activity, plus AI usage today.
+
 ## 3. Move existing local data (optional)
 
 If you already have riders in the local `data/` folder:

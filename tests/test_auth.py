@@ -207,9 +207,6 @@ class T(unittest.TestCase):
             self.assertEqual(Client(self.port).call("GET", p)[0], 404, p)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
     # ---- history, export, quota over HTTP ----
     def test_history_and_csv_endpoints_are_private_and_safe(self):
         anon = Client(self.port)
@@ -236,6 +233,24 @@ if __name__ == "__main__":
             self.assertEqual((s, j["error"]), (429, "ai_user_quota"))
         finally:
             server.API_KEY, accounts.AI_USER_DAILY = old_key, old_q
+
+    def test_admin_overview_only_for_listed_riders_and_saves_are_logged(self):
+        c, phone, *_ = self.signup("Admin Rider")
+        s, j, _ = c.call("GET", "/api/admin/overview"); self.assertEqual((s, j["error"]), (403, "forbidden"))
+        self.assertEqual(Client(self.port).call("GET", "/api/admin/overview")[0], 401)
+        self.assertFalse(c.call("GET", "/api/me")[1]["user"]["admin"])
+        accounts.ADMIN_PHONES.add(phone)
+        try:
+            me = c.call("GET", "/api/me")[1]; self.assertTrue(me["user"]["admin"])
+            c.call("PUT", "/api/me/data", {"baseVersion": me["version"], "data": {"sessions": [SESSION]}})
+            s, o, _ = c.call("GET", "/api/admin/overview")
+            self.assertEqual(s, 200); self.assertGreaterEqual(o["totals"]["riders"], 1)
+            row = [r for r in o["riders"] if r["name"] == "Admin Rider"][0]
+            self.assertEqual((row["days"], row["orders"]), (1, 1)); self.assertTrue(row["phone"].startswith("XXXXXX")); self.assertNotIn(phone, json.dumps(o))   # phones are masked
+            ev = c.call("GET", "/api/me/history")[1]["events"]
+            self.assertTrue(any(e["kind"] == "saved" and "+1 day, +1 orders" in e["detail"] for e in ev))
+        finally:
+            accounts.ADMIN_PHONES.discard(phone)
 
 
 class HistoryTests(unittest.TestCase):
@@ -297,3 +312,7 @@ class HistoryTests(unittest.TestCase):
             self.assertEqual(A.ai_usage(self.uid)["imagesToday"], 0)       # another rider is unaffected
         finally:
             A.AI_USER_DAILY = old
+
+
+if __name__ == "__main__":
+    unittest.main()

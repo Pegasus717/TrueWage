@@ -640,6 +640,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(401, {"error": "not_signed_in"})
             data, version = accounts.get_data(user["id"])
             return self._json(200, {"user": accounts.public(user), "data": data, "version": version, "ai": accounts.ai_usage(user["id"])})
+        if path == "/api/admin/overview":
+            user = self._user()
+            if not user:
+                return self._json(401, {"error": "not_signed_in"})
+            if not accounts.is_admin(user):
+                return self._json(403, {"error": "forbidden"})
+            return self._json(200, accounts.admin_overview())
         if path == "/api/me/history":
             user = self._user()
             if not user:

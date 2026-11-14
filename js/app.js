@@ -882,11 +882,11 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
       $('#ac-set', b).onclick = () => openSheet('data'); return;
     }
     b.innerHTML = `<div class="card acct"><span class="avatar big" aria-hidden="true">${esc(S.user.name.trim().charAt(0).toUpperCase())}</span><div><div class="h3">${esc(S.user.name)}</div><div class="note">XXXXXX${esc(S.user.phone4)}</div><div class="note" id="sync-state"></div></div></div>
-      <div class="menu" style="margin-top:12px"><button class="btn alt block" id="ac-hist">${t('hist_h')}</button><button class="btn alt block" id="ac-exp">${t('exp_h')}</button><button class="btn alt block" id="ac-set">${t('set_h')}</button><button class="btn alt block" id="ac-pw">${t('au_pw_change')}</button><button class="btn alt block" id="ac-out">${t('au_logout')}</button></div>
+      <div class="menu" style="margin-top:12px"><button class="btn alt block" id="ac-hist">${t('hist_h')}</button><button class="btn alt block" id="ac-exp">${t('exp_h')}</button>${S.user.admin ? `<button class="btn alt block" id="ac-adm">${t('adm_h')}</button>` : ''}<button class="btn alt block" id="ac-set">${t('set_h')}</button><button class="btn alt block" id="ac-pw">${t('au_pw_change')}</button><button class="btn alt block" id="ac-out">${t('au_logout')}</button></div>
       <div id="ac-form"></div>
       <div class="menu" style="margin-top:22px"><button class="btn alt block danger" id="ac-del">${t('au_delete')}</button></div>`;
     updateSyncUI();
-    $('#ac-set', b).onclick = () => openSheet('data'); $('#ac-out', b).onclick = doLogout; $('#ac-hist', b).onclick = () => openSheet('history'); $('#ac-exp', b).onclick = () => openSheet('expenses');
+    $('#ac-set', b).onclick = () => openSheet('data'); $('#ac-out', b).onclick = doLogout; $('#ac-hist', b).onclick = () => openSheet('history'); $('#ac-exp', b).onclick = () => openSheet('expenses'); if ($('#ac-adm', b)) $('#ac-adm', b).onclick = () => openSheet('admin');
     const form = $('#ac-form', b);
     $('#ac-pw', b).onclick = () => {
       form.innerHTML = `<form class="stack card" style="margin-top:12px" id="pwform"><div class="field"><label for="pw-old">${t('au_pw_old')}</label><input id="pw-old" type="password" autocomplete="current-password"></div>
@@ -1067,8 +1067,8 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
   const syncFab = () => { const f = $('#fab'); if (f) f.hidden = !S.report || !!S.sheet; };
   function renderSheet() {
     const b = $('#sheet-body');
-    $('#sheet-t').textContent = S.sheet === 'costs' ? t('costs_h') : S.sheet === 'data' ? t('set_h') : S.sheet === 'ask' ? t('ask_h') : S.sheet === 'auth' ? t(S.authMode === 'register' ? 'au_register' : 'au_login') : S.sheet === 'account' ? t('au_account') : S.sheet === 'expenses' ? t('exp_h') : S.sheet === 'history' ? t('hist_h') : t('add_shots');
-    if (S.sheet === 'costs') costsSheet(b); else if (S.sheet === 'data') dataSheet(b); else if (S.sheet === 'ask') askSheet(b); else if (S.sheet === 'auth') authSheet(b); else if (S.sheet === 'account') accountSheet(b); else if (S.sheet === 'expenses') expensesSheet(b); else if (S.sheet === 'history') historySheet(b); else importSheet(b);
+    $('#sheet-t').textContent = S.sheet === 'costs' ? t('costs_h') : S.sheet === 'data' ? t('set_h') : S.sheet === 'ask' ? t('ask_h') : S.sheet === 'auth' ? t(S.authMode === 'register' ? 'au_register' : 'au_login') : S.sheet === 'account' ? t('au_account') : S.sheet === 'expenses' ? t('exp_h') : S.sheet === 'history' ? t('hist_h') : S.sheet === 'admin' ? t('adm_h') : t('add_shots');
+    if (S.sheet === 'costs') costsSheet(b); else if (S.sheet === 'data') dataSheet(b); else if (S.sheet === 'ask') askSheet(b); else if (S.sheet === 'auth') authSheet(b); else if (S.sheet === 'account') accountSheet(b); else if (S.sheet === 'expenses') expensesSheet(b); else if (S.sheet === 'history') historySheet(b); else if (S.sheet === 'admin') adminSheet(b); else importSheet(b);
   }
   function costsSheet(b) {
     b.innerHTML = `<div class="grid2">${costsHTML()}</div><p class="note" style="margin-top:10px">${t('cal_help')}</p>${S.meas && S.meas.reliable ? `<p class="note" style="margin-top:8px"><span class="pill">${t('sh_badge')}</span> ${esc(t('sh_measured', { f: S.meas.factor.toFixed(2), n: S.meas.pairs }))}</p>` : ''}<div class="center"><button class="btn lg" id="c-done">${t('done')}</button></div>`;
@@ -1117,7 +1117,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     let h; try { h = await api('GET', 'api/me/history'); } catch (e) { b.innerHTML = `<div class="status err">${esc(t('au_e_net'))}</div>`; return; }
     if (S.sheet !== 'history') return;
     const st = h.stats, fdate = ts => new Date(ts * 1000).toLocaleString(LOC[S.lang], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-    const evName = k => ({ register: t('ev_register'), login: t('ev_login'), export: t('ev_export') }[k] || k);
+    const evName = (k, d) => ({ register: t('ev_register'), login: t('ev_login'), export: t('ev_export'), saved: t('ev_saved') }[k] || k) + (d && k === 'saved' ? ': ' + d : '');
     const sec = (title, rows) => `<section class="card" style="margin-top:12px"><h3 class="h3">${title}</h3>${rows.length ? `<div class="hist">${rows.join('')}</div>` : `<p class="muted">${t('hist_empty')}</p>`}</section>`;
     b.innerHTML = `<div class="stats"><div><div class="k">${t('hist_days')}</div><div class="v num">${st.days}</div></div><div><div class="k">${t('orders_n')}</div><div class="v num">${st.orders}</div></div><div><div class="k">${t('hist_gross')}</div><div class="v num">${inr(st.gross)}</div></div><div><div class="k">km</div><div class="v num">${Math.round(st.km)}</div></div></div>
       <p class="note" style="margin-top:6px">${st.first ? esc(dLabel(st.first, { day: 'numeric', month: 'short', year: 'numeric' })) + ' – ' + esc(dLabel(st.last, { day: 'numeric', month: 'short', year: 'numeric' })) : ''}</p>
@@ -1125,7 +1125,18 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
       ${sec(t('hist_zones'), h.topZones.map(z => `<div class="hrow"><span>${esc(z.zone)}</span><small>${z.orders} ${t('orders_n')}</small><b class="num">${inr(z.gross)}</b></div>`))}
       ${sec(t('hist_imports'), h.imports.map(i => `<div class="hrow"><span>${esc(fdate(i.ts))}</span><small>${esc(t('imp_line', { n: i.images, c: i.cached, s: i.sent, o: i.orders }))}</small></div>`))}
       ${sec(t('hist_statements'), h.statements.map(x => `<div class="hrow"><span>${esc(x.sid)}</span><small>${esc(fdate(x.ts))}</small><b class="num">${inr(x.monthly_take_home)}</b></div>`))}
-      ${sec(t('hist_activity'), h.events.slice(0, 12).map(e => `<div class="hrow"><span>${esc(evName(e.kind))}</span><small>${esc(fdate(e.ts))}</small></div>`))}`;
+      ${sec(t('hist_activity'), h.events.slice(0, 12).map(e => `<div class="hrow"><span>${esc(evName(e.kind, e.detail))}</span><small>${esc(fdate(e.ts))}</small></div>`))}`;
+  }
+
+  /* ---------- admin overview (only for riders listed in TRUEWAGE_ADMIN_PHONES) ---------- */
+  async function adminSheet(b) {
+    b.innerHTML = `<div class="reading"><div class="spin"></div><span>${t('reading')}</span></div>`;
+    let j; try { j = await api('GET', 'api/admin/overview'); } catch (e) { b.innerHTML = `<div class="status err">${esc(t('au_e_generic'))}</div>`; return; }
+    if (S.sheet !== 'admin') return;
+    const T0 = j.totals, ago = ts => ts ? new Date(ts * 1000).toLocaleString(LOC[S.lang], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '–';
+    b.innerHTML = `<div class="stats"><div><div class="k">${t('adm_riders')}</div><div class="v num">${T0.riders}</div></div><div><div class="k">${t('hist_days')}</div><div class="v num">${T0.days}</div></div><div><div class="k">${t('orders_n')}</div><div class="v num">${T0.orders}</div></div><div><div class="k">${t('adm_ai')}</div><div class="v num">${T0.aiImagesToday}</div></div></div>
+      <p class="note" style="margin-top:8px">${esc(t('adm_note', { i: T0.imports, s: T0.statements, c: T0.contributions, a: T0.aiCached }))}</p>
+      <section class="card" style="margin-top:12px"><h3 class="h3">${t('adm_list')}</h3><div class="hist">${j.riders.map(r => `<div class="hrow"><span>${esc(r.name)}<small style="display:block">${esc(r.phone)} · ${esc(ago(r.created))}</small></span><small>${r.days} ${t('hist_days').toLowerCase()} · ${r.orders} ${t('orders_n')} · ${r.imports} ${t('hist_imports').toLowerCase()}<br>${esc(t('adm_last'))}: ${esc(ago(r.last_active))}</small></div>`).join('') || `<p class="muted">${t('hist_empty')}</p>`}</div></section>`;
   }
 
   function dataSheet(b) {
@@ -1350,6 +1361,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     setTab(location.hash.startsWith('#verify=') ? 'proof' : 'home');
     window.addEventListener('online', () => { if (S.user) pushData(); });
     boot();
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && S.user && typeof pushData === 'function') { try { pushData(); } catch (e) { /* retried on next open */ } } });
     window.TWApp = { api, boot, doLogout, afterAuth, pushData, shiftStart, shiftStop, S, ui, loadDemo, setTab, openSheet, closeSheet, handleFiles, trySamples, sendAsk, offlineAnswer, askSummary };
   }
   init();
