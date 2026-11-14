@@ -1446,6 +1446,8 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
         if (files.length) setTimeout(() => handleFiles(files), 600);
       } catch (e) { /* sharing is optional */ }
     })();
+    const demoQ = (/[?&]demo=(Hyderabad|Bengaluru)/.exec(location.search) || [])[1];       // /?demo=Hyderabad&tab=insights opens the sample rider (guests only; used for screenshots and demos)
+    if (demoQ) setTimeout(() => { if (!S.user && !S.sessions.length) { loadDemo(demoQ); const tb = (/[?&]tab=(\w+)/.exec(location.search) || [])[1]; if (tb) setTimeout(() => setTab(tb), 700); } }, 1200);
     const go = (/[?&]go=(\w+)/.exec(location.search) || [])[1];       // home-screen shortcuts
     if (go === 'check') setTimeout(() => setTab('check'), 300); else if (go === 'add') setTimeout(() => openSheet('import'), 400);
     window.TWApp = { recompute, rerender, api, boot, doLogout, afterAuth, pushData, shiftStart, shiftStop, S, ui, loadDemo, setTab, openSheet, closeSheet, handleFiles, trySamples, sendAsk, offlineAnswer, askSummary };
