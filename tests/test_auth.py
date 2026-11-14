@@ -1,4 +1,6 @@
 """Account tests: python -m unittest discover -s tests   (real server on a free port, temp data dir, stdlib only)."""
+import os as _os
+_os.environ["TRUEWAGE_DB"] = "sqlite"       # tests never touch a hosted database, whatever .env says
 import http.client, json, os, sqlite3, sys, tempfile, threading, unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -195,9 +197,9 @@ class T(unittest.TestCase):
         import hashlib
         self.assertNotEqual(rid, hashlib.sha256(("rid:%d" % user["id"]).encode()).hexdigest()[:24])   # needs the server secret, so it cannot be recomputed from the account id
         cell = [{"platform": "Swiggy", "zone": "Madhapur", "daypart": "evening", "perHr": 100, "hours": 10}]
-        if os.path.exists(server.CONTRIB): os.remove(server.CONTRIB)
+        server.contrib_reset()
         c.call("POST", "/api/contribute", {"rid": "f" * 24, "cells": cell}); c.call("POST", "/api/contribute", {"rid": "e" * 24, "cells": cell})   # two "devices", one rider
-        stored = json.load(open(server.CONTRIB))
+        stored = server.contrib_all()
         self.assertIn(rid, stored); self.assertNotIn("f" * 24, stored); self.assertNotIn("e" * 24, stored)
 
     def test_static_files_do_not_expose_the_database(self):

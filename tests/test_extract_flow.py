@@ -1,6 +1,8 @@
 """Exercises /api/extract end to end against a LOCAL mock of the model API (no network, no key needed).
 This verifies request building, key handling, fenced-JSON tolerance and output sanitisation. It does not
 prove accuracy of the real model; that needs a live key and real screenshots."""
+import os as _os
+_os.environ["TRUEWAGE_DB"] = "sqlite"       # tests never touch a hosted database, whatever .env says
 import base64, http.client, json, os, struct, sys, tempfile, threading, unittest, zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 

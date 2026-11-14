@@ -1,4 +1,6 @@
 """Server tests: python -m unittest discover -s tests   (stdlib only; starts a real server on a free port)."""
+import os as _os
+_os.environ["TRUEWAGE_DB"] = "sqlite"       # tests never touch a hosted database, whatever .env says
 import base64, http.client, json, os, struct, sys, tempfile, threading, unittest, zlib
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -107,8 +109,7 @@ class T(unittest.TestCase):
         self.assertEqual(self.req("GET", "/api/statement/" + sid)[1]["data"], {"x": 1})
 
     def test_contribute_k_anonymity(self):
-        if os.path.exists(server.CONTRIB):
-            os.remove(server.CONTRIB)          # other test modules share this data dir
+        server.contrib_reset()                 # other test modules share this database
         cell = [{"platform": "Swiggy", "zone": "Madhapur", "daypart": "evening", "perHr": 100, "hours": 10}]
         for i in range(19):
             rid = "%024x" % (i + 1)

@@ -47,7 +47,7 @@ Place detection resolves 42 Hyderabad and Bengaluru areas from GPS (minutes per 
 
 ## 2. Architecture
 
-TrueWage is a plain-JavaScript web app (no build step) served by a small Python server that uses only the standard library, with SQLite for storage.
+TrueWage is a plain-JavaScript web app (no build step) served by a small Python server. All data lives in an **online Postgres database (Supabase)**; for zero-setup local work the same code falls back to a local SQLite file.
 
 ### 2.1 System overview
 
@@ -71,12 +71,15 @@ flowchart LR
         API["HTTP API<br/>CSRF, rate limits"]
         AUTH["accounts.py<br/>login, sessions, per-rider data"]
         EXT["extraction service<br/>cache, batching, budgets"]
-        DB[("SQLite<br/>truewage.db")]
-        FILES[("JSON files<br/>statement registry,<br/>city contributions,<br/>AI cache")]
-        API --> AUTH --> DB
-        API --> EXT
-        API --> FILES
+        STORE["store.py<br/>one storage layer"]
+        API --> AUTH --> STORE
+        API --> EXT --> STORE
     end
+
+    DB[("Supabase Postgres<br/>(online database)<br/>users, history, analytics,<br/>registry, AI cache")]
+    LOCAL[("SQLite file<br/>(local development only)")]
+    STORE == "DATABASE_URL set" ==> DB
+    STORE -. "not set" .-> LOCAL
 
     CLAUDE["Claude API<br/>(optional, key stays on server)"]
     OCR["Tesseract.js<br/>on-device fallback"]
@@ -92,6 +95,8 @@ Design rules that keep it simple and trustworthy:
 * **The server never does the maths.** It stores data, authenticates, and brokers the AI call.
 * **The AI reads; the engine calculates.** Claude turns pixels into structured orders. Every rupee figure shown to the rider comes from the tested engine.
 * **Works without an account or a key.** Guest mode keeps data on the phone; without an API key the on-device reader is used.
+* **One storage layer.** `store.py` hides the database: the same code runs on Supabase Postgres (production) and SQLite (local and tests).
+* **The browser is only a cache.** Local storage keeps an offline copy; the source of truth for a signed-in rider is the online database.
 
 ### 2.2 From screenshot to dashboard
 
@@ -202,7 +207,7 @@ erDiagram
     }
 ```
 
-Every table is keyed by `user_id` and deleted automatically (`ON DELETE CASCADE`) when the rider deletes their account.
+Every per-rider table is keyed by `user_id` and deleted automatically (`ON DELETE CASCADE`) when the rider deletes their account. Server-wide tables: `registry` (income statement hashes), `contributions` (anonymous city analytics), `extract_cache` and `ai_budget` (AI reading), `kv` (server secret). The full schema is in [deploy/supabase_schema.sql](deploy/supabase_schema.sql); the server creates it by itself on start-up.
 
 ### 2.4 How the engine turns orders into cash
 
@@ -252,7 +257,7 @@ sequenceDiagram
 | Question | Answer |
 |---|---|
 | Separate dashboard per rider? | Yes. Data is always read through the rider's own session cookie; no user id is ever accepted from the client. |
-| Where is data stored? | SQLite (`data/truewage.db`): the rider's document, plus tables for work sessions, orders, shifts, expenses, imports, statements, activity and AI usage. |
+| Where is data stored? | In the online database (Supabase Postgres when `DATABASE_URL` is set): the rider's document, plus tables for work sessions, orders, shifts, expenses, imports, statements, activity and AI usage. The statement registry, anonymous city analytics, AI reading cache and AI budget are tables too, so nothing important lives in files or in the browser. |
 | On another phone? | Log in and the same data appears. Edits from two phones at once are merged by record id; nothing is lost. |
 | Passwords | scrypt (N=2^14) with a random salt per user; compared in constant time; never logged. |
 | Sessions | 32-byte random token in an `HttpOnly`, `SameSite=Strict` cookie (`Secure` over HTTPS), 30 days; only its SHA-256 is stored. |
@@ -279,6 +284,7 @@ python server.py          # open http://localhost:8080
 1. Press **Create my account**, or **Demo rider** to explore with sample data.
 2. Press **Add screenshots**, then **Try sample screenshots** to see the reader and review step without any key.
 3. To use the AI reader, copy `.env.example` to `.env`, set `ANTHROPIC_API_KEY`, and restart. The key never leaves the server.
+4. **Online database (recommended):** create a free Supabase project, copy its *Session pooler* connection string into `.env` as `DATABASE_URL`, run `pip install -r requirements.txt`, then `python tools/db_check.py` (prints PASS/FAIL, never the password) and restart. Details in [deploy/SUPABASE.md](deploy/SUPABASE.md).
 
 Two riders in two browsers see two separate dashboards.
 
@@ -297,7 +303,9 @@ All settings are optional environment variables (or a git-ignored `.env` file).
 | `TRUEWAGE_AI_DAILY_IMAGES` | `400` | Server-wide daily cap on images sent to the AI. |
 | `TRUEWAGE_AI_USER_DAILY` | `60` | Images one signed-in rider may have read per day. |
 | `TRUEWAGE_AI_USER_ASKS` | `100` | Ask questions per rider per day. |
-| `TRUEWAGE_DATA` | `./data` | Folder for the database and JSON files. Back it up. |
+| `DATABASE_URL` | none | Supabase / Postgres connection string (the *Session pooler* URI). When empty the app uses a local SQLite file. |
+| `TRUEWAGE_DATA` | `./data` | Folder for the local SQLite file (only used without `DATABASE_URL`). |
+| `TRUEWAGE_DB` | none | Set to `sqlite` to force the local file (the tests do this). |
 | `TRUEWAGE_TRUST_PROXY` | `0` | Set `1` behind your own HTTPS proxy (real client IP, `Secure` cookie). |
 | `TRUEWAGE_COOKIE_SECURE` | `0` | Force the `Secure` cookie flag. |
 | `PORT` | `8080` | Listen port. |
@@ -362,7 +370,8 @@ All state-changing calls require the `X-TW: 1` header (CSRF defence).
 
 ```bash
 node tests/engine.test.js                    # calculation engine, readers, places, expenses, heatmap, Ask intents
-python -m unittest discover -s tests         # server and accounts (47 tests)
+python -m unittest discover -s tests         # server and accounts (47 tests, always on local SQLite)
+python tools/db_check.py                     # end-to-end check of the configured database (Supabase or SQLite)
 python tools/smoke.py http://127.0.0.1:8080  # 33 checks against any running deployment
 ```
 
@@ -387,7 +396,8 @@ python tools/smoke.py http://127.0.0.1:8080  # 33 checks against any running dep
 ## 11. Known limitations
 
 * **No SMS or e-mail.** Accounts are phone number + password; the number is not verified and a forgotten password cannot be recovered. Production would add OTP verification and recovery.
-* Account data is stored unencrypted in the server's SQLite file: protect and back up `TRUEWAGE_DATA` and serve over HTTPS.
+* Account data is stored unencrypted at the application level (Supabase encrypts disks at rest and connections in transit): keep `DATABASE_URL` secret, use backups, and serve over HTTPS.
+* The Postgres path has been written and reviewed, but the authors could only test it on SQLite: run `python tools/db_check.py` against your Supabase project after configuring it.
 * AI reading accuracy has been spot-checked on five real screenshots, not measured on a large set. On-device OCR is weaker on real app screenshots, which is why the AI is primary and every import ends in a review step.
 * The income statement is rider-attested and tamper-evident, **not** platform- or bank-certified.
 * City analytics in the demo are simulated; live cells appear only after 20+ real contributors.
@@ -410,9 +420,12 @@ js/demo.js       simulated riders and city data, sample screenshots
 js/i18n.js       English / Hindi / Telugu / Tamil strings
 js/app.js        screens, account sync, shift tracker
 server.py        HTTP API, static files, AI brokering, rate limits
-accounts.py      users, sessions, per-rider data, history, export, quotas (SQLite)
+accounts.py      users, sessions, per-rider data, history, export, quotas
+store.py         storage layer: Supabase Postgres or local SQLite, schema, connection pool
 tests/           engine, server, accounts and AI-flow tests
 tools/smoke.py   deployment smoke test
+tools/db_check.py       database round-trip check
+tools/migrate_to_db.py  copy an existing local database into Supabase
 deploy/          Docker, Caddy, systemd and Vultr guide
 ```
 

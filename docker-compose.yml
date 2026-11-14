@@ -6,7 +6,13 @@ services:
     restart: unless-stopped
     environment:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}      # optional; read from .env next to this file
-      TRUEWAGE_MODEL: ${TRUEWAGE_MODEL:-claude-sonnet-5-5}
+      DATABASE_URL: ${DATABASE_URL:-}                 # Supabase / Postgres connection string; empty = local SQLite file in the volume
+      TRUEWAGE_MODEL: ${TRUEWAGE_MODEL:-claude-haiku-5-5}
+      TRUEWAGE_EXTRACT_MODEL: ${TRUEWAGE_EXTRACT_MODEL:-claude-haiku-5-5}
+      TRUEWAGE_ESCALATE_MODEL: ${TRUEWAGE_ESCALATE_MODEL:-claude-sonnet-5-5}
+      TRUEWAGE_AI_DAILY_IMAGES: ${TRUEWAGE_AI_DAILY_IMAGES:-400}
+      TRUEWAGE_AI_USER_DAILY: ${TRUEWAGE_AI_USER_DAILY:-60}
+      TRUEWAGE_AI_USER_ASKS: ${TRUEWAGE_AI_USER_ASKS:-100}
       TRUEWAGE_TRUST_PROXY: ${TRUEWAGE_TRUST_PROXY:-0}
     volumes:
       - truewage-data:/data

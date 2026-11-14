@@ -105,27 +105,46 @@ def rate_ok(bucket, ip):
         return True
 
 
-def read_json(path, default):
-    try:
-        with open(path, encoding="utf-8") as f:
-            return json.load(f)
-    except (OSError, ValueError):
-        return default
-
-
-def write_json_atomic(path, obj):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(obj, f)
-    os.replace(tmp, path)
-
-
 import accounts  # noqa: E402  (per-rider login and private data)
 
-accounts.init(DATA_DIR)
-REGISTRY = os.path.join(DATA_DIR, "registry.json")
-CONTRIB = os.path.join(DATA_DIR, "contributions.json")
+accounts.init(DATA_DIR)          # opens the database: hosted Postgres when DATABASE_URL is set, otherwise a local SQLite file
+import store  # noqa: E402
+
+
+# ---------------- server-wide stores (all in the database) ----------------
+def registry_add(sid, h, data):
+    """Register an income-statement hash. First registration wins. Returns False when the registry is full."""
+    with store.conn() as c:
+        if c.execute("SELECT COUNT(*) AS n FROM registry").fetchone()["n"] >= 50000:
+            return False
+        c.execute("INSERT INTO registry(id, hash, data, created) VALUES(?,?,?,?) ON CONFLICT(id) DO NOTHING", (sid, h, json.dumps(data) if data is not None else None, date.today().isoformat()))
+    return True
+
+
+def registry_get(sid):
+    with store.conn() as c:
+        r = c.execute("SELECT hash, data, created FROM registry WHERE id=?", (sid,)).fetchone()
+    return {"hash": r["hash"], "data": json.loads(r["data"]) if r["data"] else None, "created": r["created"]} if r else None
+
+
+def contrib_put(rid, cells):
+    """One record per contributor; resubmitting replaces it. Returns False when full."""
+    with store.conn() as c:
+        if c.execute("SELECT COUNT(*) AS n FROM contributions WHERE rider=?", (rid,)).fetchone()["n"] == 0 and c.execute("SELECT COUNT(*) AS n FROM contributions").fetchone()["n"] >= 100000:
+            return False
+        c.execute(store.upsert_sql("contributions", ["rider", "cells", "ts"], ["rider"]), (rid, json.dumps(cells), int(time.time())))
+    return True
+
+
+def contrib_all():
+    with store.conn() as c:
+        return {r["rider"]: {"cells": json.loads(r["cells"]), "ts": r["ts"]} for r in c.execute("SELECT rider, cells, ts FROM contributions").fetchall()}
+
+
+def contrib_reset():
+    """Test helper: remove every contribution."""
+    with store.conn() as c:
+        c.execute("DELETE FROM contributions")
 
 
 # ---------------- screenshot extraction ----------------
@@ -267,56 +286,39 @@ def merge_screens(screens):
 
 
 # per-image result cache (keyed by the image's SHA-256 + prompt version): re-reading the same screenshot never costs a second API call
-_cache_lock = threading.Lock()
-_cache = None
 CACHE_MAX = 3000
 
 
-def _cache_path():
-    return os.path.join(DATA_DIR, "extract_cache.json")
-
-
 def cache_get(h):
-    global _cache
-    with _cache_lock:
-        if _cache is None:
-            _cache = OrderedDict(read_json(_cache_path(), {}))
-        k = PROMPT_VERSION + ":" + h
-        if k in _cache:
-            _cache.move_to_end(k)
-            return _cache[k]
-    return None
+    with store.conn() as c:
+        r = c.execute("SELECT screens FROM extract_cache WHERE key=?", (PROMPT_VERSION + ":" + h,)).fetchone()
+        if not r:
+            return None
+        c.execute("UPDATE extract_cache SET ts=? WHERE key=?", (int(time.time()), PROMPT_VERSION + ":" + h))
+    try:
+        return json.loads(r["screens"])
+    except ValueError:
+        return None
 
 
 def cache_put(h, screens):
-    with _cache_lock:
-        if _cache is None:
-            return
-        _cache[PROMPT_VERSION + ":" + h] = screens
-        while len(_cache) > CACHE_MAX:
-            _cache.popitem(last=False)
-        try:
-            write_json_atomic(_cache_path(), _cache)
-        except OSError:
-            pass
+    with store.conn() as c:
+        c.execute(store.upsert_sql("extract_cache", ["key", "screens", "ts"], ["key"]), (PROMPT_VERSION + ":" + h, json.dumps(screens), int(time.time())))
+        n = c.execute("SELECT COUNT(*) AS n FROM extract_cache").fetchone()["n"]
+        if n > CACHE_MAX:                                   # keep the most recently used entries
+            c.execute("DELETE FROM extract_cache WHERE key IN (SELECT key FROM extract_cache ORDER BY ts ASC LIMIT ?)", (n - CACHE_MAX,))
 
 
 # daily budget: a hard ceiling on images sent upstream, whatever the per-user limits allow
-_budget_lock = threading.Lock()
-
-
 def spend_budget(n):
-    path = os.path.join(DATA_DIR, "ai_usage.json")
     today = date.today().isoformat()
-    with _budget_lock:
-        u = read_json(path, {})
-        used = u.get(today, 0) if isinstance(u, dict) else 0
+    with store.conn() as c:
+        c.begin_write()
+        c.execute("INSERT INTO ai_budget(day, images) VALUES(?, 0) ON CONFLICT(day) DO NOTHING", (today,))
+        used = c.execute("SELECT images FROM ai_budget WHERE day=?" + c.for_update, (today,)).fetchone()["images"]
         if used + n > DAILY_IMAGES:
             raise AIBudget()
-        try:
-            write_json_atomic(path, {today: used + n})
-        except OSError:
-            pass
+        c.execute("UPDATE ai_budget SET images=images+? WHERE day=?", (n, today))
 
 
 def post_upstream(body):
@@ -498,7 +500,7 @@ def clean_cells(cells):
 
 
 def city_summary():
-    data = read_json(CONTRIB, {})
+    data = contrib_all()
     cells = defaultdict(list)
     for rid, rec in data.items():
         per = defaultdict(lambda: [0.0, 0.0])  # a rider counts once per zone x daypart, weighted by hours
@@ -631,7 +633,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = self.path.split("?", 1)[0]
         if path == "/api/health":
-            return self._json(200, {"ok": True, "ai": bool(API_KEY), "model": MODEL if API_KEY else None})
+            return self._json(200, {"ok": True, "ai": bool(API_KEY), "model": MODEL if API_KEY else None, "db": store.backend()})
         if path == "/api/me":
             user = self._user()
             if not user:
@@ -654,7 +656,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, city_summary())
         if path.startswith("/api/statement/"):
             rid = path.rsplit("/", 1)[-1]
-            rec = read_json(REGISTRY, {}).get(rid) if re.fullmatch(r"TW-[0-9A-F]{12}", rid) else None
+            rec = registry_get(rid) if re.fullmatch(r"TW-[0-9A-F]{12}", rid) else None
             return self._json(200, rec) if rec else self._json(404, {"error": "unknown id"})
         if not STATIC_OK.match(path):
             return self._json(404, {"error": "not found"})
@@ -705,12 +707,8 @@ class Handler(BaseHTTPRequestHandler):
                 if not (re.fullmatch(r"TW-[0-9A-F]{12}", sid) and re.fullmatch(r"[0-9a-f]{64}", h) and sid == "TW-" + h[:12].upper()):
                     return self._json(400, {"error": "id must be derived from the hash"})
                 data = body.get("data") if isinstance(body.get("data"), dict) else None
-                with _lock:
-                    reg = read_json(REGISTRY, {})
-                    if len(reg) >= 50000:
-                        return self._json(507, {"error": "registry full"})
-                    reg.setdefault(sid, {"hash": h, "data": data, "created": date.today().isoformat()})
-                    write_json_atomic(REGISTRY, reg)
+                if not registry_add(sid, h, data):
+                    return self._json(507, {"error": "registry full"})
                 user = self._user()
                 if user:
                     per = (data or {}).get("period") if isinstance((data or {}).get("period"), dict) else {}
@@ -731,12 +729,8 @@ class Handler(BaseHTTPRequestHandler):
                 cells = clean_cells(body.get("cells"))
                 if not cells:
                     return self._json(400, {"error": "no valid cells"})
-                with _lock:
-                    data = read_json(CONTRIB, {})
-                    if rid not in data and len(data) >= 100000:
-                        return self._json(507, {"error": "full"})
-                    data[rid] = {"cells": cells, "ts": int(time.time())}  # one record per contributor; resubmitting replaces it
-                    write_json_atomic(CONTRIB, data)
+                if not contrib_put(rid, cells):
+                    return self._json(507, {"error": "full"})
                 return self._json(200, {"ok": True, "stored": True})
         except AIBusy as e:
             return self._json(503, {"error": "ai_busy"}, headers={"Retry-After": str(e.retry)})

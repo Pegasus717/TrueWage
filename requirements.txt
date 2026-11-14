@@ -1,0 +1,2 @@
+# Only needed when DATABASE_URL points at Postgres (Supabase). The app runs on the Python standard library alone with the local SQLite file.
+psycopg[binary]>=3.1

@@ -1,9 +1,11 @@
-# TrueWage: stdlib-only Python server + static front-end. No pip install step.
+# TrueWage: Python server + static front-end. Runtime dependencies: none, except the Postgres driver when DATABASE_URL is used.
 FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1 PORT=8080 HOST=0.0.0.0 TRUEWAGE_DATA=/data
 RUN useradd --system --uid 10001 --home-dir /app truewage && mkdir -p /data /app && chown truewage /data /app
 WORKDIR /app
-COPY --chown=truewage index.html server.py accounts.py manifest.json sw.js icon.svg ./
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+COPY --chown=truewage index.html server.py accounts.py store.py manifest.json sw.js icon.svg ./
 COPY --chown=truewage css ./css
 COPY --chown=truewage js ./js
 USER truewage
