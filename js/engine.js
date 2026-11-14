@@ -416,6 +416,77 @@
     return { factor: paid > 0 ? Math.max(0, (tracked - paid) / paid) : null, pairs: n, paidKm: paid, trackedKm: tracked, reliable: n >= 3 && paid >= 30 };
   }
 
+  /* ---------------- planner, area switching, weekly coach ---------------- */
+
+  /** Build today's schedule from the rider's own best hours until the take-home goal is covered.
+   *  Rates are the rider's real (after-cost) pay per hour for that hour of day, app and area, from at least 3 days of history. */
+  function planDay(rep, goal, maxHours) {
+    const best = planNow(rep, 0).best, mw = rep.profile.minWage, cap = maxHours || 12;
+    const cands = best.filter(b => b && b.perHr >= mw).sort((a, b) => b.perHr - a.perHr);
+    if (!cands.length || !(goal > 0)) return { segments: [], hours: 0, expected: 0, reached: false, goal };
+    const picked = []; let total = 0;
+    for (const c of cands) { if (picked.length >= cap) break; picked.push(c); total += c.perHr; if (total >= goal) break; }
+    picked.sort((a, b) => a.hour - b.hour);
+    const segs = [];
+    picked.forEach(c => {
+      const l = segs[segs.length - 1];
+      if (l && l.end === c.hour && l.platform === c.platform && l.zone === c.zone) { l.end = c.hour + 1; l.expected += c.perHr; l.n++; }
+      else segs.push({ start: c.hour, end: c.hour + 1, platform: c.platform, zone: c.zone, expected: c.perHr, n: 1 });
+    });
+    segs.forEach(g => { g.perHr = g.expected / g.n; g.end = g.end % 24 || 24; });
+    return { segments: segs, hours: picked.length, expected: total, reached: total >= goal, goal };
+  }
+
+  /** "Move to another area": compare a weak area-and-time with the rider's own other areas first, then with city data (simulated in the demo). */
+  function areaSwitch(rep, cityCells) {
+    const mw = rep.profile.minWage, out = [];
+    DAYPARTS.forEach(dp => {
+      const own = rep.zoneDaypart.filter(z => z.daypart === dp && z.hours >= 2 && z.days >= 2);
+      const weak = own.filter(z => z.days >= 3 && z.hours >= 4).sort((a, b) => a.perHr - b.perHr)[0];
+      if (!weak || weak.perHr >= mw * 0.8) return;
+      const need = weak.perHr * 1.25 + 10;
+      const alt = own.filter(z => z.zone !== weak.zone && z.perHr >= need).sort((a, b) => b.perHr - a.perHr)[0];
+      if (alt) { out.push({ key: 'switch', sev: 'good', p: { daypart: dp, from: weak.zone, to: alt.zone, a: round(weak.perHr), b: round(alt.perHr), src: 'own' } }); return; }
+      const city = (cityCells || []).filter(c => !c.hidden && c.daypart === dp && c.zone !== weak.zone && c.real >= need && c.real >= mw * 0.8).sort((a, b) => b.real - a.real)[0];
+      if (city) out.push({ key: 'switch', sev: 'good', p: { daypart: dp, from: weak.zone, to: city.zone, a: round(weak.perHr), b: round(city.real), src: 'city' } });
+    });
+    return out.sort((x, y) => (y.p.b - y.p.a) - (x.p.b - x.p.a)).slice(0, 2);
+  }
+
+  const addDays = (iso, d) => { const t = new Date(iso + 'T00:00:00Z'); t.setUTCDate(t.getUTCDate() + d); return t.toISOString().slice(0, 10); };
+
+  /** Week-by-week history: 7-day blocks ending on the latest day of data. */
+  function weeks(rep, count) {
+    const last = rep.dates[rep.dates.length - 1], out = [];
+    for (let i = 0; i < (count || 6); i++) {
+      const to = addDays(last, -7 * i), from = addDays(to, -6);
+      const l = rep.orders.filter(o => o.date >= from && o.date <= to);
+      if (!l.length) { if (i > 0 && out.length) break; continue; }
+      const a = aggregate(l);
+      out.push({ from, to, days: new Set(l.map(o => o.date)).size, net: a.net, hours: a.hours, perHr: a.perHr, orders: a.n });
+    }
+    return out;
+  }
+
+  /** One win and one thing to fix, from the last 7 days against the 7 before. Needs at least 8 days of data. */
+  function weeklyCoach(rep) {
+    if (rep.daysWorked < 8) return null;
+    const w = weeks(rep, 2), cur = w[0], prev = w[1] || null;
+    const days = rep.byDay.filter(d => d.date >= cur.from && d.date <= cur.to);
+    const bestDay = days.slice().sort((a, b) => b.net - a.net)[0];
+    const wl = rep.orders.filter(o => o.date >= cur.from && o.date <= cur.to), agg = aggregate(wl);
+    let win;
+    if (prev && cur.perHr - prev.perHr >= 5) win = { key: 'up', p: { d: round(cur.perHr - prev.perHr) } };
+    else win = { key: 'best', p: { date: bestDay.date, net: round(bestDay.net) } };
+    let fix = null;
+    if (agg.waitShare > 0.2) fix = { key: 'wait', p: { pct: round(agg.waitShare * 100) } };
+    else {
+      const sk = rep.insights.find(i => i.key === 'skip');
+      if (sk) fix = { key: 'skip', p: sk.p };
+    }
+    return { cur, prev, deltaPerHr: prev ? cur.perHr - prev.perHr : null, deltaNet: prev ? cur.net - prev.net : null, bestDay, win, fix };
+  }
+
   /** Historical working windows (platform x zone x time of day) with their per-hour economics. */
   function simWindows(rep) {
     return rep.combos.filter(c => c.hours > 0).map(c => ({
@@ -443,6 +514,6 @@
       perHr: hoursMonth > 0 ? cashMonth / hoursMonth : 0, opPerHr: hrs > 0 ? opDay / hrs : 0 };
   }
 
-  const API = { haversine, addFix, pairShifts, applyShifts, measuredDeadKm, sensitivity, fuelKm, simulate, simWindows, orderCheck, planNow, fairFloor, dayReceipt, VEHICLES, DAYPARTS, DAYPART_HOURS, daypartOf, defaultProfile, enrich, aggregate, analyze, statementData, median, round };
+  const API = { planDay, areaSwitch, weeks, weeklyCoach, haversine, addFix, pairShifts, applyShifts, measuredDeadKm, sensitivity, fuelKm, simulate, simWindows, orderCheck, planNow, fairFloor, dayReceipt, VEHICLES, DAYPARTS, DAYPART_HOURS, daypartOf, defaultProfile, enrich, aggregate, analyze, statementData, median, round };
   if (typeof module !== 'undefined' && module.exports) module.exports = API; else root.TW = Object.assign(root.TW || {}, API);
 })(typeof window !== 'undefined' ? window : globalThis);

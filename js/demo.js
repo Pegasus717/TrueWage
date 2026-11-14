@@ -22,6 +22,12 @@
     { platform: 'Zomato', zone: 'Madhapur',   start: 17.5, hours: 5.0, rate: 3.1,  km: 2.7, base: 22, perKm: 9.0, surge: 6, bonusAt: 14, bonus: 180, label: 'evening' }
   ];
 
+  const WINDOWS_BLR = [
+    { platform: 'Rapido', zone: 'Whitefield',      start: 8.0,  hours: 2.5, rate: 1.9,  km: 4.6, base: 20, perKm: 8.0, bonusAt: 0, label: 'morning' },
+    { platform: 'Swiggy', zone: 'Electronic City', start: 11.5, hours: 3.5, rate: 1.3,  km: 3.8, base: 17, perKm: 7.5, bonusAt: 0, label: 'lunch' },
+    { platform: 'Zomato', zone: 'Koramangala',     start: 17.5, hours: 5.0, rate: 3.0,  km: 2.6, base: 22, perKm: 9.2, surge: 6, bonusAt: 14, bonus: 180, label: 'evening' }
+  ];
+
   function makeSession(r, date, w, idx) {
     const wk = [0, 5, 6].includes(dow(date));
     const hours = w.hours + (wk && w.label === 'evening' ? 0.5 : 0);
@@ -44,14 +50,15 @@
     return { id: date + '-' + idx, date, platform: w.platform, zone: w.zone, onlineMin, bonus, orders, source: 'demo' };
   }
 
-  function demoSessions(endDate) {
+  function demoSessions(endDate, city) {
+    const WIN = city === 'Bengaluru' ? WINDOWS_BLR : WINDOWS;
     const end = endDate || '2026-11-13';
     const r = rng(2026);
     const sessions = [];
     for (let d = 27; d >= 0; d--) {
       const date = addDays(end, -d);
       if (dow(date) === 2) continue; // weekly off: Tuesday
-      WINDOWS.forEach((w, i) => {
+      WIN.forEach((w, i) => {
         if (w.label === 'morning' && [0, 6].includes(dow(date))) return; // commute rides on weekdays only
         sessions.push(makeSession(r, date, w, i));
       });
@@ -70,18 +77,22 @@
   }
 
   /* ---------------- simulated city data (labelled as simulated everywhere in the UI) --------------- */
-  const CITY_ZONES = {
+  const CITY_ZONES = {   // Hyderabad (kept under this name for compatibility)
     Madhapur: 1.18, Gachibowli: 1.12, Kondapur: 1.05, 'Banjara Hills': 1.0,
     Secunderabad: 0.9, Uppal: 0.8, Dilsukhnagar: 0.74, Kukatpally: 0.7
+  };
+  const CITIES = {
+    Hyderabad: { zones: CITY_ZONES, seed: 7, riders: 2846, contributions: 61432 },
+    Bengaluru: { zones: { Koramangala: 1.17, Indiranagar: 1.12, 'HSR Layout': 1.08, Marathahalli: 1.0, Whitefield: 0.95, Jayanagar: 0.9, Hebbal: 0.8, 'Electronic City': 0.7 }, seed: 11, riders: 3412, contributions: 74208 }
   };
   const CITY_DP = { morning: 0.58, lunch: 0.7, afternoon: 0.46, evening: 1.15, night: 0.92 };
   const CITY_PLATFORMS = { Swiggy: 1.0, Zomato: 1.03, Rapido: 0.9, Ola: 0.84, Uber: 0.95 };
   const K_ANON = 20;
 
-  function cityData() {
-    const r = rng(7);
+  function cityData(city) {
+    const def = CITIES[city] || CITIES.Hyderabad, r = rng(def.seed);
     const cells = [];
-    Object.entries(CITY_ZONES).forEach(([zone, zf]) => {
+    Object.entries(def.zones).forEach(([zone, zf]) => {
       Object.entries(CITY_DP).forEach(([dp, df]) => {
         const n = Math.round(6 + r() * 380 * (zf > 0.9 ? 1 : 0.55));
         const real = 108 * zf * df * (0.94 + r() * 0.12);
@@ -97,7 +108,7 @@
     const wtd = (k) => visible.reduce((s, c) => s + c[k] * c.n, 0) / visible.reduce((s, c) => s + c.n, 0);
     const real = wtd('real'), claimed = wtd('claimed');
     return {
-      simulated: true, riders: 2846, contributions: 61432, k: K_ANON, cells, platforms,
+      city: CITIES[city] ? city : 'Hyderabad', simulated: true, riders: def.riders, contributions: def.contributions, k: K_ANON, cells, platforms, zones: Object.keys(def.zones),
       medianReal: Math.round(real), medianClaimed: Math.round(claimed),
       belowMinWagePct: Math.round(visible.reduce((s, c) => s + (c.real < 90 ? c.n : 0), 0) / visible.reduce((s, c) => s + c.n, 0) * 100)
     };
@@ -138,6 +149,6 @@
 
   // a rider paying off a financed bike: Rs 3,600/month EMI (~Rs 120/day)
   const DEMO_PROFILE = { fixedPerDay: 120 };
-  const API = { demoShifts, demoSessions, cityData, renderSampleScreens, rng, WINDOWS, CITY_ZONES, K_ANON, DEMO_PROFILE };
+  const API = { CITIES, demoShifts, demoSessions, cityData, renderSampleScreens, rng, WINDOWS, CITY_ZONES, K_ANON, DEMO_PROFILE };
   if (typeof module !== 'undefined' && module.exports) module.exports = API; else root.TWDemo = API;
 })(typeof window !== 'undefined' ? window : globalThis);

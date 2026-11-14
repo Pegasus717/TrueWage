@@ -32,13 +32,13 @@
     sessions: [], profile: T.defaultProfile('petrol'), hashes: [], reader: null, lastBatch: [], shared: false,
     rider: { name: '', phone4: '' }, lang: 'en', report: null, tab: 'home', demo: false,
     day: null, goal: 800, simHour: null, oc: null, fairTarget: null, wi: { hours: {}, days: null, fuel: 0 }, pending: null,
-    insSeg: 'advice', citySeg: 'map', advAll: false, fullCalc: false, sheet: null, vehicleOk: false, tourDone: false, big: false, shifts: [], shift: null, meas: null
+    insSeg: 'coach', city: 'Hyderabad', citySeg: 'map', advAll: false, fullCalc: false, sheet: null, vehicleOk: false, tourDone: false, big: false, shifts: [], shift: null, meas: null
   };
   const ui = { busy: false, msg: null, thumbs: null, open: new Set(), chat: [], ai: false, listening: false, thinking: false };
 
   /* ---------- persistence (best-effort; the app works without it) ---------- */
   const KEY = 'truewage.v3';
-  const PERSIST = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shared', 'rider', 'lang', 'demo', 'goal', 'vehicleOk', 'tourDone', 'big', 'shifts', 'shift'];
+  const PERSIST = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shared', 'rider', 'lang', 'demo', 'goal', 'vehicleOk', 'tourDone', 'big', 'shifts', 'shift', 'city'];
   function save() { try { const o = {}; PERSIST.forEach(k => o[k] = S[k]); localStorage.setItem(KEY, JSON.stringify(o)); } catch (e) { /* private mode */ } }
   function load() {
     try {
@@ -96,9 +96,16 @@
     }));
   }
 
-  function adviceText(ins) { const p = Object.assign({}, ins.p); if (p.daypart) p.daypart = t('dp_' + p.daypart); return t('a_' + ins.key, p); }
+  let CITIES = {};
+  const cityFor = name => CITIES[name] || (CITIES[name] = D.cityData(name));
+  const ORDER = ['leak', 'below', 'above', 'skip', 'switch', 'best', 'platform', 'breakeven', 'whatif', 'perkm', 'waitimpact', 'deadkm', 'expense', 'permkm', 'lowdata'];
+  function allInsights(rep) {
+    const list = rep.insights.concat(T.areaSwitch(rep, cityFor(S.city).cells));
+    return list.sort((a, b) => ORDER.indexOf(a.key) - ORDER.indexOf(b.key));
+  }
+  function adviceText(ins) { const p = Object.assign({}, ins.p); if (p.daypart) p.daypart = t('dp_' + p.daypart); return t(ins.key === 'switch' && ins.p.src === 'city' ? 'a_switch_city' : 'a_' + ins.key, p); }
   const TAG = { leak: ['tg_real', 'bad'], below: ['tg_alert', 'bad'], above: ['tg_ok', 'good'], skip: ['tg_skip', 'bad'], best: ['tg_more', 'good'], permkm: ['tg_watch', 'warn'], deadkm: ['tg_watch', 'warn'],
-    whatif: ['tg_if', 'good'], perkm: ['tg_real', 'warn'], waitimpact: ['tg_watch', 'warn'], breakeven: ['tg_watch', 'warn'], platform: ['tg_more', 'good'], expense: ['tg_real', 'warn'], lowdata: ['tg_alert', 'warn'] };
+    whatif: ['tg_if', 'good'], perkm: ['tg_real', 'warn'], waitimpact: ['tg_watch', 'warn'], breakeven: ['tg_watch', 'warn'], platform: ['tg_more', 'good'], expense: ['tg_real', 'warn'], lowdata: ['tg_alert', 'warn'], switch: ['tg_more', 'good'] };
   function adviceRows(list) {
     return list.map((a, n) => { const [k, sev] = TAG[a.i.key] || ['tg_watch', 'warn']; return `<div class="adv"><div><span class="tag ${sev}">${t(k)}</span><p>${esc(a.txt)}</p></div><button class="ibtn" data-spk="${n}" aria-label="${t('speak')}">${ic('volume')}</button></div>`; }).join('');
   }
@@ -115,7 +122,7 @@
   const seg = (id, items, cur) => `<div class="seg" id="${id}" role="tablist">${items.map(([k, label]) => `<button data-s="${k}" aria-pressed="${cur === k}">${label}</button>`).join('')}</div>`;
   function noData(v) {
     v.innerHTML = `<div class="empty"><h2 class="h2">${t('empty_t')}</h2><p>${t('empty_p')}</p><div class="rows" style="justify-content:center"><button class="btn lg" id="e-add">${t('add_shots')}</button><button class="btn lg alt" id="e-demo">${t('btn_demo')}</button></div></div>`;
-    $('#e-demo', v).onclick = loadDemo; $('#e-add', v).onclick = () => openSheet('import');
+    $('#e-demo', v).onclick = () => loadDemo('Hyderabad'); $('#e-add', v).onclick = () => openSheet('import');
   }
 
   /* ---------- ledger: from the app's total to cash in hand (each line is a waterfall step) ---------- */
@@ -145,6 +152,14 @@
   let EX = null;
   const exampleReport = () => EX || (EX = T.analyze(D.demoSessions(), Object.assign(T.defaultProfile('petrol'), D.DEMO_PROFILE)));
 
+  function routeArt() {
+    return `<svg class="routeart" viewBox="0 0 420 120" role="img" aria-label="Delivery route from restaurant to customer" preserveAspectRatio="xMidYMid meet">
+      <path d="M30 92 C 110 20, 170 110, 250 58 S 360 30, 392 70" fill="none" stroke="var(--ink3)" stroke-width="3" stroke-dasharray="2 9" stroke-linecap="round"/>
+      <g transform="translate(18 76)"><circle cx="12" cy="12" r="12" fill="var(--ink)"/><path d="M7 14h10M9 9h6" stroke="#fff" stroke-width="2" stroke-linecap="round"/></g>
+      <g transform="translate(378 52)"><path d="M14 0a10 10 0 0 1 10 10c0 8-10 20-10 20S4 18 4 10A10 10 0 0 1 14 0z" fill="var(--kept)"/><circle cx="14" cy="10" r="3.5" fill="#fff"/></g>
+      <g transform="translate(176 52)"><circle cx="8" cy="30" r="9" fill="none" stroke="var(--ink)" stroke-width="3"/><circle cx="40" cy="30" r="9" fill="none" stroke="var(--ink)" stroke-width="3"/><path d="M8 30l12-14h14l6 14M20 16l-4-8h-6" fill="none" stroke="var(--ink)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><rect x="22" y="2" width="16" height="14" rx="3" fill="var(--mark)" stroke="var(--ink)" stroke-width="2.5"/></g>
+    </svg>`;
+  }
   function renderLanding(v) {
     const ex = exampleReport(), r = T.dayReceipt(ex, 'period');
     const langs = Object.keys(I18N.L).map(k => `<button data-l="${k}" aria-pressed="${S.lang === k}">${I18N.L[k]._name}</button>`).join('');
@@ -152,15 +167,15 @@
       <div class="landing hero"><div>
           <h1>${t('hero_h')}</h1><p class="lead">${t('hero_p')}</p>
           <div class="langs"><div class="eyebrow">${t('pick_lang')}</div><div class="seg" id="lseg">${langs}</div></div>
-          <div class="cta"><button class="btn lg" id="l-add">${ic('upload')}${t('add_shots')}</button><button class="btn lg alt" id="l-demo">${t('btn_demo')}</button></div></div>
-        <div>${smallReceipt(r, t('period_all'), true)}</div></div>
+          <div class="cta"><button class="btn lg" id="l-add">${ic('upload')}${t('add_shots')}</button></div><div class="cta" style="margin-top:10px"><button class="btn alt" id="l-demo">${t('dm_hyd')}</button><button class="btn alt" id="l-demo2">${t('dm_blr')}</button></div></div>
+        <div>${routeArt()}${smallReceipt(r, t('period_all'), true)}</div></div>
       <div class="steps">
         <div><span class="n">1</span><div><h3>${t('step_1')}</h3><p>${t('st1_p')}</p></div></div>
         <div><span class="n">2</span><div><h3>${t('step_2')}</h3><p>${t('st2_p')}</p></div></div>
         <div><span class="n">3</span><div><h3>${t('step_3')}</h3><p>${t('st3_p')}</p></div></div></div>`;
     $$('#lseg button', v).forEach(b => b.onclick = () => changeLang(b.dataset.l));
     v.insertAdjacentHTML('beforeend', `<div style="margin-top:28px;max-width:560px">${shiftCardHTML(null)}</div>`); bindShift(v);
-    $('#l-add', v).onclick = () => openSheet('import'); $('#l-demo', v).onclick = loadDemo;
+    $('#l-add', v).onclick = () => openSheet('import'); $('#l-demo', v).onclick = () => loadDemo('Hyderabad'); $('#l-demo2', v).onclick = () => loadDemo('Bengaluru');
   }
 
   const HOURS_NOW = () => (S.simHour != null ? S.simHour : new Date().getHours());
@@ -195,7 +210,7 @@
     const label = sel === 'period' ? t('period_all') : sel === 'typical' ? t('avg_day') : dLabel(sel, { weekday: 'short', day: 'numeric', month: 'short' });
     const range = rep.daysWorked === 1 ? dLabel(rep.dates[0], { weekday: 'short', day: 'numeric', month: 'short' }) : `${dLabel(rep.dates[0], { day: 'numeric', month: 'short' })} – ${dLabel(rep.dates[rep.dates.length - 1], { day: 'numeric', month: 'short' })} · ${rep.daysWorked} ${t('days')}`;
     const plan = T.planNow(rep, HOURS_NOW());
-    const advice = rep.insights.filter(i => ['skip', 'best', 'platform', 'breakeven', 'whatif', 'deadkm', 'waitimpact', 'lowdata'].includes(i.key)).slice(0, 2).map(i => ({ i, txt: adviceText(i) }));
+    const advice = allInsights(rep).filter(i => ['skip', 'switch', 'best', 'platform', 'breakeven', 'whatif', 'deadkm', 'waitimpact', 'lowdata'].includes(i.key)).slice(0, 2).map(i => ({ i, txt: adviceText(i) }));
     const keptPct = r.appShown > 0 ? Math.max(0, Math.min(100, rd(r.net / r.appShown * 100))) : 0;
     const p = S.profile, vlabel = t('v_' + p.vehicle);
     v.innerHTML = `
@@ -221,6 +236,8 @@
             ${ledgerHTML(r, S.fullCalc)}${S.fullCalc ? `<p class="note" style="margin-top:10px">${t('op_note')}</p>` : ''}</section>
           ${advice.length ? `<section class="card"><div class="rows between"><h3 class="h3">${t('advice_h')}</h3><button class="link" id="to-ins">${t('more_advice')}</button></div>${adviceRows(advice)}</section>` : ''}
           ${planCard(rep, plan)}
+          ${planDayCard(rep)}
+          ${weekCardHTML(rep)}
         </div>
       </div>`;
     $('#period', v).onchange = e => { S.day = e.target.value; renderHome(); };
@@ -242,6 +259,9 @@
     });
     bindSpeak(v, advice); bindShift(v);
     const sim = $('#sim', v); if (sim) sim.onchange = () => { S.simHour = sim.value === '' ? null : +sim.value; renderHome(); };
+    const pg = $('#pd-goal', v); if (pg) pg.onchange = () => { S.goal = Math.max(100, parseFloat(pg.value) || 800); save(); renderHome(); };
+    const ps = $('#pd-spk', v); if (ps) ps.onclick = () => speak($$('#pd-lines li', v).map(x => x.textContent).concat([$('#pd-total', v).textContent]));
+    const wm = $('#wk-more', v); if (wm) wm.onclick = () => { S.insSeg = 'coach'; setTab('insights'); };
   }
 
   function planCard(rep, plan) {
@@ -257,6 +277,22 @@
       <select id="sim" class="sel" aria-label="${t('plan_sim')}">${opts}</select></div>
       ${plan.state === 'nodata' ? '' : `<div style="margin-top:8px"><span class="state ${plan.state}"><i></i>${plan.state === 'good' ? t('oc_take') : t('oc_skip')}</span></div>`}
       <p style="margin-top:6px">${esc(msg)}</p><div class="tl">${cells}</div><div class="tlx">${hours.map(h => `<span>${h % 3 === 0 ? h : ''}</span>`).join('')}</div></section>`;
+  }
+  function planDayCard(rep) {
+    const pl = T.planDay(rep, S.goal);
+    let body;
+    if (!pl.segments.length) body = `<p class="note">${esc(t('pd_none'))}</p>`;
+    else body = `<ol class="pd" id="pd-lines">${pl.segments.map(g => `<li>${esc(t('pd_seg', { start: g.start, end: g.end, platform: g.platform, zone: g.zone, rate: inr(g.perHr) }))}</li>`).join('')}</ol>
+      <p id="pd-total" style="margin-top:8px"><b>${esc(pl.reached ? t('pd_total', { x: inr(pl.expected), h: pl.hours }) : t('pd_short', { x: inr(pl.expected), h: pl.hours, goal: inr(S.goal) }))}</b></p>`;
+    return `<section class="card"><div class="rows between" style="align-items:end"><h3 class="h3">${t('pd_h')}</h3>
+      <div class="field" style="width:150px"><label for="pd-goal">${t('pd_goal')}</label><input id="pd-goal" type="number" inputmode="numeric" step="50" min="100" value="${S.goal}"></div></div>
+      <div style="margin-top:10px">${body}</div>${pl.segments.length ? `<button class="btn sm alt" id="pd-spk" style="margin-top:10px">${ic('volume')}${t('speak')}</button>` : ''}</section>`;
+  }
+  function weekCardHTML(rep) {
+    const c = T.weeklyCoach(rep); if (!c) return '';
+    const dl = c.deltaPerHr;
+    return `<section class="card"><div class="rows between"><h3 class="h3">${t('wk_h')}</h3><button class="link" id="wk-more">${t('more_advice')}</button></div>
+      <p style="margin-top:6px">${esc(t('wk_sum', { days: c.cur.days, cash: inr(c.cur.net), hr: inr(c.cur.perHr) }))}${dl !== null && Math.abs(dl) >= 1 ? ' ' + esc(t(dl > 0 ? 'wk_up' : 'wk_down', { d: inr(Math.abs(dl)) })) : ''}</p></section>`;
   }
   function goalCard(rep) {
     const plan = T.planNow(rep, 12), mw = rep.profile.minWage, good = plan.best.filter(b => b && b.perHr >= mw).map(b => b.perHr);
@@ -342,16 +378,35 @@
     const tt = rep.total, d = rep.daysWorked, dq = rep.dataQuality;
     v.innerHTML = `<h2 class="h2"><span class="hl num">${inr(tt.perHr)}</span> ${t('per_hr_real')}</h2>
       <p class="dq ${dq.level}">${t('dq_based', { days: dq.days, orders: dq.orders, hours: rd(dq.hours) })} · ${t('dq_' + dq.level)}</p>
-      <div style="margin:16px 0 18px">${seg('iseg', [['advice', t('sg_advice')], ['when', t('sg_when')], ['costs', t('sg_costs')], ['wi', t('wi_tab')]], S.insSeg)}</div><div id="ibody"></div>`;
+      <div style="margin:16px 0 18px">${seg('iseg', [['coach', t('sg_coach')], ['advice', t('sg_advice')], ['when', t('sg_when')], ['costs', t('sg_costs')], ['wi', t('wi_tab')]], S.insSeg)}</div><div id="ibody"></div>`;
     $$('#iseg button', v).forEach(b => b.onclick = () => { S.insSeg = b.dataset.s; renderInsights(); });
     const body = $('#ibody', v);
-    if (S.insSeg === 'advice') insAdvice(body, rep);
+    if (S.insSeg === 'coach') insCoach(body, rep);
+    else if (S.insSeg === 'advice') insAdvice(body, rep);
     else if (S.insSeg === 'when') insWhen(body, rep);
     else if (S.insSeg === 'costs') insCosts(body, rep);
     else whatifBody(body);
   }
+  function insCoach(b, rep) {
+    const c = T.weeklyCoach(rep), wk = T.weeks(rep, 6);
+    const lines = [];
+    if (c) {
+      lines.push({ tag: 'tg_more', sev: 'good', txt: t(c.win.key === 'up' ? 'wk_win_up' : 'wk_win_best', c.win.key === 'up' ? { d: inr(c.win.p.d) } : { date: dLabel(c.win.p.date, { weekday: 'short', day: 'numeric', month: 'short' }), cash: inr(c.win.p.net) }) });
+      if (c.fix) lines.push({ tag: 'tg_alert', sev: 'bad', txt: c.fix.key === 'wait' ? t('wk_fix_wait', c.fix.p) : t('wk_fix_skip', { zone: c.fix.p.zone, daypart: t('dp_' + c.fix.p.daypart), rate: inr(c.fix.p.rate) }) });
+    }
+    const dl = c && c.deltaPerHr;
+    b.innerHTML = c ? `<section class="card"><div class="eyebrow">${esc(t('week_of', { from: dLabel(c.cur.from, { day: 'numeric', month: 'short' }) }))}</div>
+        <div class="stats" style="margin-top:6px"><div><div class="k">${t('c_cash')}</div><div class="v num">${inr(c.cur.net)}</div><div class="s">${c.prev ? (c.deltaNet >= 0 ? '+' : '−') + inr(Math.abs(c.deltaNet)).replace('−', '') + ' ' + t('wk_vs') : ''}</div></div>
+          <div><div class="k">${t('per_hr_real')}</div><div class="v num ${dl !== null && dl < 0 ? 'bad' : 'good'}">${inr(c.cur.perHr)}</div><div class="s">${dl !== null && Math.abs(dl) >= 1 ? esc(t(dl > 0 ? 'wk_up' : 'wk_down', { d: inr(Math.abs(dl)) })) : ''}</div></div>
+          <div><div class="k">${t('hrs_online')}</div><div class="v num">${rd(c.cur.hours)}</div><div class="s">${c.cur.days} ${t('days')}</div></div></div>
+        ${lines.map((l, i) => `<div class="adv"><div><span class="tag ${l.sev}">${t(l.tag)}</span><p>${esc(l.txt)}</p></div><button class="ibtn" data-cspk="${i}" aria-label="${t('speak')}">${ic('volume')}</button></div>`).join('')}</section>`
+      : `<p class="dq low">${esc(t('wk_none'))}</p>`;
+    $$('[data-cspk]', b).forEach(x => x.onclick = () => speak([lines[+x.dataset.cspk].txt]));
+    if (wk.length) b.insertAdjacentHTML('beforeend', `<section class="card" style="margin-top:20px"><h3 class="h3" style="margin-bottom:6px">${t('sg_weeks')}</h3><table class="cmpt"><thead><tr><th>${t('week_of', { from: '' }).trim()}</th><th>${t('days')}</th><th>${t('c_cash')}</th><th>${t('per_hr_real')}</th></tr></thead><tbody>
+      ${wk.map(w => `<tr><td>${dLabel(w.from, { day: 'numeric', month: 'short' })}</td><td class="num">${w.days}</td><td class="num"><b>${inr(w.net)}</b></td><td class="num">${inr(w.perHr)}</td></tr>`).join('')}</tbody></table></section>`);
+  }
   function insAdvice(b, rep) {
-    const advice = rep.insights.map(i => ({ i, txt: adviceText(i) }));
+    const advice = allInsights(rep).map(i => ({ i, txt: adviceText(i) }));
     b.innerHTML = `<div class="rows between"><span class="note">${advice.length}</span><button class="btn sm alt" id="spk-all">${ic('volume')}${t('speak')}</button></div><div class="card" style="margin-top:8px">${adviceRows(advice)}</div>`;
     $('#spk-all', b).onclick = () => speak(advice.map(a => a.txt)); bindSpeak(b, advice);
   }
@@ -461,7 +516,6 @@
   }
 
   /* ---------- CITY ---------- */
-  let CITY = null;
   function youVsCity(rep, c) {
     if (!rep) return '';
     const gaps = rep.zoneDaypart.filter(z => z.days >= 3 && z.hours >= 4).map(z => {
@@ -491,8 +545,8 @@
   async function fetchLive() { try { const r = await fetch('api/city', { cache: 'no-store' }); if (!r.ok) return null; return await r.json(); } catch (e) { return null; } }
 
   function renderCity() {
-    const v = $('#view-city'); CITY = CITY || D.cityData();
-    const rep = S.report, c = CITY, zones = Object.keys(D.CITY_ZONES), mine = rep ? rep.zoneDaypart : null;
+    const v = $('#view-city');
+    const rep = S.report, c = cityFor(S.city), zones = c.zones, mine = rep ? rep.zoneDaypart : null;
     const maxP = Math.max(...c.platforms.map(p => p.claimed)), gap = rd((1 - c.medianReal / c.medianClaimed) * 100);
     const panel = {
       map: () => `${youVsCity(rep, c)}<section class="card"><h3 class="h3">${t('where_h')}</h3>${heatmapHTML(c.cells, zones, mine, S.profile.minWage)}<p class="note" style="margin-top:8px">${t('city_hidden')}${rep ? ' · ' + t('city_you') + ': outlined' : ''}</p></section>
@@ -507,6 +561,7 @@
     };
     v.innerHTML = `
       <div class="rows between"><h2 class="h2">${t('city_h')}</h2><span class="sim">${t('city_sim')}</span></div>
+      <div style="margin-top:12px" aria-label="${t('city_pick')}">${seg('cityseg', [['Hyderabad', 'Hyderabad'], ['Bengaluru', 'Bengaluru']], S.city)}</div>
       <div class="stats">
         <div><div class="k">${t('city_claim')}</div><div class="v num">${inr(c.medianClaimed)}</div><div class="s">/ ${t('hours')}</div></div>
         <div><div class="k">${t('city_med')}</div><div class="v num good">${inr(c.medianReal)}</div><div class="s">−${gap}%</div></div>
@@ -515,6 +570,7 @@
       <div style="margin:18px 0">${seg('cseg', [['map', t('sg_map')], ['fair', t('fair_floor')], ['share', t('sg_share')]], S.citySeg)}</div>
       <div id="cbody">${panel[S.citySeg]()}</div>`;
     $$('#cseg button', v).forEach(b => b.onclick = () => { S.citySeg = b.dataset.s; renderCity(); });
+    $$('#cityseg button', v).forEach(b => b.onclick = () => { S.city = b.dataset.s; save(); renderCity(); });
     const ft = $('#fair-t', v); if (ft) ft.oninput = () => { S.fairTarget = +ft.value; renderCity(); };
     const sb = $('#share-city', v);
     if (sb) {
@@ -530,7 +586,7 @@
       };
       $('#csv', v).onclick = () => {
         const rows = ['zone,time_of_day,riders,median_real_rupees_per_hour,median_app_implied_rupees_per_hour,data_source'].concat(c.cells.filter(x => !x.hidden).map(x => [x.zone, x.daypart, x.n, x.real, x.claimed, 'SIMULATED'].join(',')));
-        const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([rows.join('\n')], { type: 'text/csv' })); a.download = 'truewage-city-report-SIMULATED.csv'; a.click();
+        const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([rows.join('\n')], { type: 'text/csv' })); a.download = 'truewage-' + c.city.toLowerCase() + '-report-SIMULATED.csv'; a.click();
       };
     }
   }
@@ -705,6 +761,7 @@
       costs: { platformCuts: R0(r.deduction), fuel: R0(r.fuel), repairs: R0(r.maint), phoneData: R0(r.data), bikeEmi: R0(r.fixed), profitBeforeEmi: R0(r.op), unpaidRidingCost: R0(r.deadCost) },
       bestWindows: win.slice(0, 3), worstWindows: win.slice(-2).reverse(), platforms: rep.byPlatform.map(x => ({ name: x.key, realPerHour: R0(x.perHr) })),
       nowHour: plan.hour, nowState: plan.state, nextGoodWindow: plan.next ? { from: plan.next.start, to: plan.next.end || 24, area: plan.next.zone, platform: plan.next.platform, realPerHour: R0(plan.next.perHr) } : null,
+      moveAdvice: T.areaSwitch(rep, cityFor(S.city).cells).map(x => ({ at: x.p.daypart, from: x.p.from, to: x.p.to, yourPerHour: x.p.a, theirPerHour: x.p.b, source: x.p.src === 'city' ? 'simulated city data' : 'your own history' })),
       tracked: { shifts: S.shifts.length, hours: R0(S.shifts.reduce((a, x) => a + x.onlineMin, 0) / 60), km: R0(S.shifts.reduce((a, x) => a + x.km, 0)), unpaidRidingFactor: Math.round(rep.profile.deadKm * 100) / 100, unpaidRidingMeasuredByGps: !!(S.meas && S.meas.reliable) },
       fairWagePerHour: p.minWage, assumptions: { vehicle: p.vehicle, fuelPricePerUnit: p.fuelPrice, kmPerUnit: p.mileage, emiPerDay: p.fixedPerDay, unpaidKmFactor: p.deadKm }
     };
@@ -723,7 +780,9 @@
       case 'hours': { const tt = rep.total, m = S.meas; return `${rd(tt.hours)} ${t('hrs_online')} \u00B7 ${rd(tt.km)} ${t('km_paid')} \u00B7 ${rd(tt.deadKmAbs)} ${t('km_unpaid')}. ` + (m && m.reliable ? t('sh_measured', { f: m.factor.toFixed(2), n: m.pairs }) : t('sh_assumed', { f: S.profile.deadKm })); }
       case 'income': case 'hourly': return t('h_sum', { app: inr(r.appShown), kept: inr(r.net), real: inr(r.perHr), appHr: inr(r.appPerHr) });
       case 'best': { const b = find('best'); if (!b) return t('ask_none'); let out = adviceText(b); if (plan.state !== 'good' && plan.next) out += ' ' + t('ns_go', { start: plan.next.start, end: plan.next.end || 24, zone: plan.next.zone, platform: plan.next.platform, rate: inr(plan.next.perHr) }); return out; }
-      case 'worst': { const w = rep.insights.filter(i => i.key === 'skip'); return w.length ? w.map(adviceText).join(' ') : t('ask_none'); }
+      case 'worst': { const w = allInsights(rep).filter(i => i.key === 'skip' || i.key === 'switch'); return w.length ? w.map(adviceText).join(' ') : t('ask_none'); }
+      case 'plan': { const goal = det.amount || S.goal, pl = T.planDay(rep, goal); return pl.segments.length ? pl.segments.map(g => t('pd_seg', { start: g.start, end: g.end, platform: g.platform, zone: g.zone, rate: inr(g.perHr) })).join('. ') + '. ' + (pl.reached ? t('pd_total', { x: inr(pl.expected), h: pl.hours }) : t('pd_short', { x: inr(pl.expected), h: pl.hours, goal: inr(goal) })) : t('pd_none'); }
+      case 'week': { const c = T.weeklyCoach(rep); if (!c) return t('wk_none'); const dl = c.deltaPerHr; return t('wk_sum', { days: c.cur.days, cash: inr(c.cur.net), hr: inr(c.cur.perHr) }) + (dl !== null && Math.abs(dl) >= 1 ? ' ' + t(dl > 0 ? 'wk_up' : 'wk_down', { d: inr(Math.abs(dl)) }) : '') + ' ' + t(c.win.key === 'up' ? 'wk_win_up' : 'wk_win_best', c.win.key === 'up' ? { d: inr(c.win.p.d) } : { date: dLabel(c.win.p.date, { weekday: 'short', day: 'numeric', month: 'short' }), cash: inr(c.win.p.net) }); }
       case 'now':
         if (plan.state === 'good') return t('plan_good', { rate: rd(plan.now.perHr), zone: plan.now.zone, platform: plan.now.platform });
         if (plan.state === 'poor' && plan.next) return t('plan_poor', { rate: rd(plan.now.perHr), start: plan.next.start, end: plan.next.end || 24, zone: plan.next.zone, platform: plan.next.platform, rate2: rd(plan.next.perHr) });
@@ -963,8 +1022,9 @@
     stage(sessions, reader, hashes, { unread, dupImages: 0 });
   }
 
-  async function loadDemo() {
-    S.sessions = D.demoSessions();
+  async function loadDemo(city) {
+    city = typeof city === 'string' ? city : 'Hyderabad'; S.city = city;
+    S.sessions = D.demoSessions(undefined, city);
     S.profile = Object.assign(T.defaultProfile('petrol'), D.DEMO_PROFILE);
     S.hashes = await Promise.all(S.sessions.map(s => R.sha256Text(JSON.stringify(s))));
     S.reader = 'demo'; S.demo = true; S.lastBatch = []; S.pending = null; stopWatch(); S.shift = null; S.shifts = D.demoShifts(S.sessions, 0.45);

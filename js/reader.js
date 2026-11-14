@@ -3,7 +3,7 @@
 (function (root) {
   'use strict';
   const KNOWN_PLATFORMS = ['Swiggy', 'Zomato', 'Rapido', 'Ola', 'Uber', 'Porter', 'Blinkit', 'Zepto', 'Dunzo', 'Shadowfax', 'Ecom Express'];
-  const KNOWN_ZONES = ['Madhapur', 'Gachibowli', 'Kondapur', 'Banjara Hills', 'Secunderabad', 'Uppal', 'Dilsukhnagar', 'Kukatpally', 'Hitech City', 'Koramangala', 'Indiranagar', 'Whitefield', 'Andheri', 'Bandra', 'Connaught Place', 'T Nagar', 'Adyar'];
+  const KNOWN_ZONES = ['Madhapur', 'Gachibowli', 'Kondapur', 'Banjara Hills', 'Secunderabad', 'Uppal', 'Dilsukhnagar', 'Kukatpally', 'Hitech City', 'Koramangala', 'Indiranagar', 'Whitefield', 'HSR Layout', 'Marathahalli', 'Jayanagar', 'Hebbal', 'Electronic City', 'BTM Layout', 'JP Nagar', 'Andheri', 'Bandra', 'Connaught Place', 'T Nagar', 'Adyar'];
 
   async function sha256(buf) {
     const h = await crypto.subtle.digest('SHA-256', buf);

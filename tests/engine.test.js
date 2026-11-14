@@ -216,3 +216,40 @@ assert.strictEqual(Ask.detect('How many hours did I work and how far did I ride?
 assert.strictEqual(Ask.detect('\u0915\u093f\u0924\u0928\u0940 \u0926\u0942\u0930\u0940 \u091a\u0932\u093e?').intent, 'hours');
 assert.strictEqual(Ask.detect('What is my pay per hour').intent, 'hourly');
 console.log('ask hours OK');
+
+// ---------- v7: planner, area switching, weekly coach, Bengaluru ----------
+const hyd = D.cityData('Hyderabad'), blr = D.cityData('Bengaluru');
+assert.strictEqual(hyd.city, 'Hyderabad'); assert.strictEqual(blr.city, 'Bengaluru');
+assert(hyd.medianReal === 82 && hyd.riders === 2846, 'Hyderabad simulated data unchanged');
+assert(blr.zones.includes('Koramangala') && blr.zones.includes('Whitefield') && blr.zones.length === 8, 'Bengaluru areas');
+assert(blr.cells.some(c => c.hidden) && blr.cells.every(c => c.hidden === (c.n < D.K_ANON)), 'k-anonymity applied to Bengaluru too');
+const bSess = D.demoSessions('2026-11-13', 'Bengaluru');
+assert(bSess.every(s => ['Whitefield', 'Electronic City', 'Koramangala'].includes(s.orders[0].zone)), 'Bengaluru rider works Bengaluru areas');
+const bRep = TW.analyze(bSess, demoProfile);
+assert(bRep.total.perHr > 0 && Math.abs(bRep.total.net - (bRep.total.op - bRep.total.fixed)) < 1e-6, 'Bengaluru demo balances');
+const bSkip = bRep.insights.find(i => i.key === 'skip' && i.p.zone === 'Electronic City');
+assert(bSkip, 'Bengaluru rider is told to skip Electronic City lunch');
+// plan my day
+const plan = TW.planDay(rep, 800);
+assert(plan.segments.length >= 1 && plan.segments.every(g => g.perHr >= demoProfile.minWage), 'only profitable windows');
+assert(plan.reached && plan.expected >= 800 && plan.hours <= 12, 'goal reached within the day: ' + plan.expected.toFixed(0) + ' in ' + plan.hours + 'h');
+assert(plan.segments.every((g, i, a) => i === 0 || g.start >= a[i - 1].start), 'schedule is chronological');
+assert(!plan.segments.some(g => /Kukatpally/.test(g.zone)), 'planner avoids the loss-making lunch window');
+const bigGoal = TW.planDay(rep, 99999); assert(!bigGoal.reached && bigGoal.hours <= 12, 'unreachable goal is reported honestly, never faked');
+assert.strictEqual(TW.planDay(rep, 0).segments.length, 0);
+const planBlr = TW.planDay(bRep, 800); assert(planBlr.segments.every(g => g.zone !== 'Electronic City'));
+// area switching
+const sw = TW.areaSwitch(rep, hyd.cells);
+assert(sw.length >= 1 && sw[0].p.from === 'Kukatpally' && sw[0].p.src === 'city' && sw[0].p.b > sw[0].p.a * 1.25, 'switch advice from city data: ' + JSON.stringify(sw[0] && sw[0].p));
+assert.deepStrictEqual(TW.areaSwitch(rep, []).filter(x => x.p.src === 'city'), [], 'no city data => no city claim');
+const swBlr = TW.areaSwitch(bRep, blr.cells); assert(swBlr.some(x => x.p.from === 'Electronic City'));
+// own-area switch preferred over city when the rider has worked the better area at the same time
+const ownSess = JSON.parse(JSON.stringify(sessions)).map(s => s); ownSess.forEach(s => { if (s.platform === 'Zomato') { s.orders.forEach(o => { o.hour = 12 + (o.hour % 2); o.zone = 'Madhapur'; }); s.onlineMin = 150; } });
+const ownRep = TW.analyze(ownSess, demoProfile); const ownSw = TW.areaSwitch(ownRep, hyd.cells);
+assert(ownSw.some(x => x.p.src === 'own' && x.p.from === 'Kukatpally' && x.p.to === 'Madhapur'), 'own better area at the same time is preferred: ' + JSON.stringify(ownSw.map(x => x.p)));
+// weeks + weekly coach
+const wk = TW.weeks(rep, 6); assert(wk.length >= 3 && wk[0].to === rep.dates[rep.dates.length - 1], 'weeks end on the latest day');
+assert(Math.abs(wk.reduce((a, w) => a + w.net, 0) - rep.orders.filter(o => o.date >= wk[wk.length - 1].from).reduce((a, o) => a + o.net, 0)) < 1e-6, 'weekly cash adds up');
+const coach = TW.weeklyCoach(rep); assert(coach && coach.cur && coach.win && coach.cur.days >= 1);
+assert.strictEqual(TW.weeklyCoach(TW.analyze(sessions.slice(0, 6), demoProfile)), null, 'no coach with under 8 days');
+console.log('v7 OK  plan', plan.segments.map(g => g.start + '-' + g.end + ' ' + g.zone).join(' | '), '| switch', sw[0].p.from, '->', sw[0].p.to, '| coach win', coach.win.key, 'fix', coach.fix && coach.fix.key);

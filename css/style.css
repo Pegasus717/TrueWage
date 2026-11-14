@@ -273,3 +273,10 @@ html.big{font-size:19px}html.big body{font-size:19px}
 .shift-big>div{background:var(--surface);border-radius:12px;padding:10px 12px}
 .shift-big .num{display:block;font:600 34px/1.1 var(--serif);letter-spacing:-1px}
 .shift-big small{color:var(--ink2);font-size:13px}
+
+/* ---------- v7: theme (the road, the route, the pin) ---------- */
+.routeart{width:100%;height:auto;max-height:130px;margin:0 0 8px;display:block}
+.road{height:0;border-top:3px dashed var(--rule);margin:28px 0}
+.pd{margin:0;padding-left:0;list-style:none}.pd li{padding:9px 0 9px 22px;border-top:1px solid var(--rule);position:relative;font-weight:600}
+.pd li:first-child{border-top:0}.pd li::before{content:"";position:absolute;left:2px;top:17px;width:10px;height:10px;border-radius:50%;background:var(--kept);box-shadow:0 0 0 3px var(--kept-bg)}
+.landing .cta .btn.alt{flex:1}

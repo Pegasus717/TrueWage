@@ -28,10 +28,12 @@
     platform: ['platform', 'swiggy', 'zomato', 'rapido', 'ola', 'uber', 'which app', 'compare', 'प्लेटफ', 'स्विगी', 'ज़ोमैटो', 'जोमैटो', 'యాప్', 'స్విగ్గీ', 'జొమాటో', 'தளம்', 'ஸ்விக்கி', 'சொமேட்டோ'],
     costs: ['cost', 'expense', 'spend', 'where does my money', 'where my money', 'petrol', 'fuel', 'repairs', 'emi', 'खर्च', 'पेट्रोल', 'किस्त', 'ఖర్చు', 'పెట్రోల్', 'செலவு', 'பெட்ரோல்'],
     hours: ['how many hours', 'hours did i', 'how far', 'distance', 'how many km', 'km did i', '\u0915\u093f\u0924\u0928\u0947 \u0918\u0902\u091f\u0947', '\u0915\u093f\u0924\u0928\u0940 \u0926\u0942\u0930', '\u0926\u0942\u0930\u0940', '\u0c0e\u0c28\u0c4d\u0c28\u0c3f \u0c17\u0c02\u0c1f\u0c32\u0c41', '\u0c0e\u0c02\u0c24 \u0c26\u0c42\u0c30\u0c02', '\u0c26\u0c42\u0c30\u0c02', '\u0b8e\u0ba4\u0bcd\u0ba4\u0ba9\u0bc8 \u0bae\u0ba3\u0bbf', '\u0b8e\u0bb5\u0bcd\u0bb5\u0bb3\u0bb5\u0bc1 \u0ba4\u0bc2\u0bb0\u0bae\u0bcd', '\u0ba4\u0bc2\u0bb0\u0bae\u0bcd'],
+    plan: ['plan my day', 'my plan', 'schedule', 'plan', '\u092a\u094d\u0932\u093e\u0928', '\u092f\u094b\u091c\u0928\u093e', '\u0c2a\u0c4d\u0c32\u0c3e\u0c28\u0c4d', '\u0ba4\u0bbf\u0b9f\u0bcd\u0b9f\u0bae\u0bcd'],
+    week: ['this week', 'last week', 'weekly', 'week', '\u0939\u092b\u093c\u094d\u0924\u093e', '\u0939\u092b\u094d\u0924\u093e', '\u0c35\u0c3e\u0c30\u0c02', '\u0bb5\u0bbe\u0bb0\u0bae\u0bcd'],
     hourly: ['per hour', 'hourly', 'an hour', 'each hour', '/hour', 'घंटा', 'घंटे', 'గంట', 'மணி'],
     income: ['earn', 'made', 'make', 'income', 'kept', 'keep', 'take home', 'take-home', 'cash', 'salary', 'profit', 'कमाई', 'कमाया', 'बचा', 'हाथ', 'సంపాదన', 'మిగిలింది', 'చేతిలో', 'வருமானம்', 'மிஞ்சி', 'கையில்']
   };
-  const PRIORITY = ['order', 'fuel', 'goal', 'now', 'worst', 'best', 'platform', 'costs', 'hours', 'hourly', 'income'];
+  const PRIORITY = ['order', 'fuel', 'plan', 'week', 'goal', 'now', 'worst', 'best', 'platform', 'costs', 'hours', 'hourly', 'income'];
 
   /** Pull numbers out of the question and decide what each one means (rupees, km, percent). */
   function numbers(q) {
