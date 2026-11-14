@@ -59,9 +59,14 @@
       const pay = moneyNum ? moneyNum.v : nums[0].v, km = kmNum ? kmNum.v : (nums.find(n => n !== moneyNum) || {}).v;
       if (pay > 0 && km > 0) return Object.assign(out, { intent: 'order', pay, km });
     }
+    // "what if petrol goes to 120": an absolute fuel price, returned as a price (the app turns it into a % change)
+    const priceNum = rest.find(n => n.v >= 60 && n.v <= 300);
+    if (priceNum && /petrol|fuel|diesel|cng|पेट्रोल|పెట్రోల్|பெட்ரோல்/.test(q) && /to|goes|reach|hike|rise|हो|అయి|ஆக/.test(q) && !score.order) return Object.assign(out, { intent: 'fuel', price: priceNum.v });
     if (pctNum && (score.fuel || !Object.keys(score).some(k => score[k] > 0 && k !== 'fuel'))) return Object.assign(out, { intent: 'fuel', pct: pctNum.v });
     if (score.fuel && nums.length) return Object.assign(out, { intent: 'fuel', pct: (nums[0].v) });
     if (moneyNum && (score.goal || score.income) && !score.hourly) return Object.assign(out, { intent: 'goal', amount: moneyNum.v });
+    // naming platforms/apps without asking when or where is a platform comparison, even if the word "best" is there
+    if (score.platform && !/when|where|time|area|zone|कब|कहा|ఎప్పుడ|ఎక్కడ/.test(q)) return Object.assign(out, { intent: 'platform' });
     let best = null;
     PRIORITY.forEach(k => { if (score[k] > 0 && (best === null || score[k] > score[best])) best = k; });
     if (best) out.intent = best;

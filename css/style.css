@@ -338,3 +338,11 @@ a.link,button.link{color:var(--ink);font-weight:700}
 .kept-card .kbar{background:rgba(255,255,255,.2)}
 .kept-card .kbar-l{color:#E9DFB5}
 .kept-card .kbar-l{background:none}
+/* v9b: phone polish found in review */
+.tabbar button{font-size:11.5px;white-space:nowrap;letter-spacing:-.1px;padding-left:0;padding-right:0}
+@media(max-width:520px){
+  #fab,.fab{width:56px;height:56px;padding:0;border-radius:50%;gap:0}
+  #fab span,.fab span,#fab .lbl,.fab .lbl{display:none}
+  main{padding-bottom:96px}
+  .shift:not(.on)>p.note:first-of-type{display:none}
+}

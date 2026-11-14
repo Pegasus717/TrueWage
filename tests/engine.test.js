@@ -253,3 +253,16 @@ assert(Math.abs(wk.reduce((a, w) => a + w.net, 0) - rep.orders.filter(o => o.dat
 const coach = TW.weeklyCoach(rep); assert(coach && coach.cur && coach.win && coach.cur.days >= 1);
 assert.strictEqual(TW.weeklyCoach(TW.analyze(sessions.slice(0, 6), demoProfile)), null, 'no coach with under 8 days');
 console.log('v7 OK  plan', plan.segments.map(g => g.start + '-' + g.end + ' ' + g.zone).join(' | '), '| switch', sw[0].p.from, '->', sw[0].p.to, '| coach win', coach.win.key, 'fix', coach.fix && coach.fix.key);
+
+// ---- v9: reader copes with other screenshot layouts ----
+{
+  const a = Rd.parseText('Swiggy Delivery\n13 Nov 2026\nLogged in: 5 hrs 30 mins\n12:10 Madhapur 3.2 km ₹52\n13:05 Kondapur 2.0 km ₹41 + ₹10\n');
+  assert.strictEqual(a.date, '2026-11-13'); assert.strictEqual(a.onlineMin, 330); assert.strictEqual(a.orders.length, 2); assert.strictEqual(a.platform, 'Swiggy');
+  const b = Rd.parseText('Zomato\nNov 9, 2026\nOnline time 6h 5m\nOrder ₹48 2.5 km\nOrder ₹60 4.1 km\n19:10 Gachibowli 3.0 km ₹55');
+  assert.strictEqual(b.date, '2026-11-09'); assert.strictEqual(b.onlineMin, 365); assert.strictEqual(b.orders.length, 3);
+  assert.strictEqual(b.guessedHours, 2, 'orders without a time are accepted but flagged'); assert.strictEqual(b.orders[0].hour, 13);
+  const c = Rd.parseText('Rapido Captain\n09/11/2026\n5h 20m online\n8:30 am Uppal 1.8 km Rs 38\nTotal earnings Rs 1,450 for 24 km');
+  assert.strictEqual(c.date, '2026-11-09'); assert.strictEqual(c.onlineMin, 320); assert.strictEqual(c.orders.length, 1, 'a totals line is not an order');
+  const d = Rd.parseText('99/99/2026 nothing useful'); assert.strictEqual(d.orders.length, 0);
+  console.log('v9 OK  reader layouts');
+}

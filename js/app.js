@@ -285,7 +285,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     if (plan.state === 'good') msg = t('plan_good', { rate: rd(plan.now.perHr), zone: plan.now.zone, platform: plan.now.platform });
     else if (plan.state === 'poor') msg = nx ? t('plan_poor', Object.assign({ rate: rd(plan.now.perHr) }, nx)) : t('plan_nodata');
     else msg = t('plan_nodata') + (nx ? ' → ' + nx.start + ':00–' + nx.end + ':00 · ' + nx.zone + ' · ' + nx.platform + ' (' + inr(nx.rate2) + '/h)' : '');
-    const opts = [['', 'Live'], [8, '08:00'], [13, '13:00'], [19, '19:00'], [22, '22:00']].map(([v, l]) => `<option value="${v}" ${String(S.simHour == null ? '' : S.simHour) === String(v) ? 'selected' : ''}>${l}</option>`).join('');
+    const opts = [['', t('w_live')], [8, '08:00'], [13, '13:00'], [19, '19:00'], [22, '22:00']].map(([v, l]) => `<option value="${v}" ${String(S.simHour == null ? '' : S.simHour) === String(v) ? 'selected' : ''}>${l}</option>`).join('');
     return `<section class="card"><div class="rows between"><h3 class="h3">${t('plan_h')} · ${String(cur).padStart(2, '0')}:00</h3>
       <select id="sim" class="sel" aria-label="${t('plan_sim')}">${opts}</select></div>
       ${plan.state === 'nodata' ? '' : `<div style="margin-top:8px"><span class="state ${plan.state}"><i></i>${plan.state === 'good' ? t('oc_take') : t('oc_skip')}</span></div>`}
@@ -514,7 +514,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     if (!out) return;
     if (!(S.oc.km > 0)) { out.innerHTML = ''; return; }
     const r = T.orderCheck(rep ? rep.profile : S.profile, { pay: S.oc.pay, km: S.oc.km, avgWait: rep ? rep.avgWaitPerOrder : 6, fixedPerHour: rep && rep.total.hours > 0 ? rep.total.fixed / rep.total.hours : undefined });
-    const msg = r.verdict === 'take' ? t('oc_msg_take', { net: rd(r.net), min: rd(r.effMin), hr: rd(r.perHr) }) : t('oc_msg_skip', { net: rd(r.net), hr: rd(r.perHr) });
+    const msg = r.verdict === 'take' ? t('oc_msg_take', { net: inr(r.net), min: rd(r.effMin), hr: inr(r.perHr) }) : t('oc_msg_skip', { net: inr(r.net), hr: inr(r.perHr) });
     const pos = Math.max(2, Math.min(98, r.perHr / (mw * 2) * 100));
     out.innerHTML = `<div class="verdict ${r.verdict}" role="status" aria-live="polite">
       <div class="word">${t('oc_' + r.verdict)}</div><p class="msg">${esc(msg)}${r.verdict !== 'take' ? ' ' + esc(t('oc_need', { mw, need: rd(r.need) })) : ''}</p>
@@ -525,7 +525,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
         <div class="lg cost"><div class="lg-t"><span>${t('g_vehicle')} (${r.km} km)</span><span class="v">−${inr(r.vehicleCost)}</span></div></div>
         <div class="lg cost"><div class="lg-t"><span>${t('c_data')} + ${t('c_fixed')} (${rd(r.effMin)} min)</span><span class="v">−${inr(r.timeCost)}</span></div></div>
         <div class="lg"><div class="lg-t"><b>${t('c_net')}</b><b class="v">${inr(r.net)}</b></div></div></div>
-      <p class="note" style="margin-top:10px">${inr(r.perKm)}/km · break-even ${inr(r.breakEvenPerKm)}/km</p></div>`;
+      <p class="note" style="margin-top:10px">${inr(r.perKm)}/km · ${t('w_be')} ${inr(r.breakEvenPerKm)}/km</p></div>`;
   }
 
   /* ---------- CITY ---------- */
@@ -537,7 +537,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     }).filter(Boolean).sort((a, b) => a.diff - b.diff);
     if (!gaps.length) return '';
     const w = gaps[0], b = gaps[gaps.length - 1];
-    const line = (g, good) => `<div class="adv"><div><span class="tag ${good ? 'good' : 'bad'}">${good ? t('tg_more') : t('tg_alert')}</span><p><b>${esc(g.z.zone)} · ${esc(t('dp_' + g.z.daypart))}</b>: ${t('city_you')} <b>${inr(g.z.perHr)}/h</b> vs ${t('n_city')} <b>${inr(g.cc.real)}/h</b> (${g.cc.n} ${t('city_riders')}, simulated)</p></div><span></span></div>`;
+    const line = (g, good) => `<div class="adv"><div><span class="tag ${good ? 'good' : 'bad'}">${good ? t('tg_more') : t('tg_alert')}</span><p><b>${esc(g.z.zone)} · ${esc(t('dp_' + g.z.daypart))}</b>: ${t('city_you')} <b>${inr(g.z.perHr)}/h</b> vs ${t('n_city')} <b>${inr(g.cc.real)}/h</b> (${g.cc.n} ${t('city_riders')}, ${t('w_sim')})</p></div><span></span></div>`;
     return `<div class="card" style="margin-bottom:20px">${w.diff < -10 ? line(w, false) : ''}${b.diff > 10 && b !== w ? line(b, true) : ''}</div>`;
   }
   function fairBlock(rep) {
@@ -562,7 +562,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     const rep = S.report, c = cityFor(S.city), zones = c.zones, mine = rep ? rep.zoneDaypart : null;
     const maxP = Math.max(...c.platforms.map(p => p.claimed)), gap = rd((1 - c.medianReal / c.medianClaimed) * 100);
     const panel = {
-      map: () => `${youVsCity(rep, c)}<section class="card"><h3 class="h3">${t('where_h')}</h3>${heatmapHTML(c.cells, zones, mine, S.profile.minWage)}<p class="note" style="margin-top:8px">${t('city_hidden')}${rep ? ' · ' + t('city_you') + ': outlined' : ''}</p></section>
+      map: () => `${youVsCity(rep, c)}<section class="card"><h3 class="h3">${t('where_h')}</h3>${heatmapHTML(c.cells, zones, mine, S.profile.minWage)}<p class="note" style="margin-top:8px">${t('city_hidden')}${rep ? ' · ' + t('city_you') + ': ' + t('w_outlined') : ''}</p></section>
         <section class="card" style="margin-top:20px"><h3 class="h3">${t('city_tod')}</h3>${todChart(c)}</section>`,
       fair: () => `<div class="cols two"><section class="card"><h3 class="h3" style="margin-bottom:12px">${t('fair_h')}</h3>${fairBlock(rep)}</section>
         <section class="card"><h3 class="h3">${t('city_platform_h')}</h3>${c.platforms.slice().sort((a, b) => b.real - a.real).map(p => `<div class="cmp"><b>${esc(p.platform)}</b><div>
@@ -576,7 +576,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
       <div class="rows between"><h2 class="h2">${t('city_h')}</h2><span class="sim">${t('city_sim')}</span></div>
       <div style="margin-top:12px" aria-label="${t('city_pick')}">${seg('cityseg', [['Hyderabad', 'Hyderabad'], ['Bengaluru', 'Bengaluru']], S.city)}</div>
       <div class="stats">
-        <div><div class="k">${t('city_claim')}</div><div class="v num">${inr(c.medianClaimed)}</div><div class="s">/ ${t('hours')}</div></div>
+        <div><div class="k">${t('city_claim')}</div><div class="v num">${inr(c.medianClaimed)}</div><div class="s">/h</div></div>
         <div><div class="k">${t('city_med')}</div><div class="v num good">${inr(c.medianReal)}</div><div class="s">−${gap}%</div></div>
         <div><div class="k">${t('city_below')}</div><div class="v num bad">${c.belowMinWagePct}%</div><div class="s">₹${S.profile.minWage}/h</div></div>
         <div><div class="k">${t('city_riders')}</div><div class="v num">${c.riders.toLocaleString('en-IN')}</div><div class="s">k ≥ ${c.k}</div></div></div>
@@ -935,7 +935,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     const rep = S.report;
     if (det.intent === 'order') {
       const r = T.orderCheck(rep ? rep.profile : S.profile, { pay: det.pay, km: det.km, avgWait: rep ? rep.avgWaitPerOrder : 6, fixedPerHour: rep && rep.total.hours > 0 ? rep.total.fixed / rep.total.hours : undefined });
-      const msg = r.verdict === 'take' ? t('oc_msg_take', { net: rd(r.net), min: rd(r.effMin), hr: rd(r.perHr) }) : t('oc_msg_skip', { net: rd(r.net), hr: rd(r.perHr) });
+      const msg = r.verdict === 'take' ? t('oc_msg_take', { net: inr(r.net), min: rd(r.effMin), hr: inr(r.perHr) }) : t('oc_msg_skip', { net: inr(r.net), hr: inr(r.perHr) });
       return `${inr(det.pay)} \u00B7 ${det.km} km: ${t('oc_' + r.verdict)}. ${msg}${r.verdict !== 'take' ? ' ' + t('oc_need', { mw: S.profile.minWage, need: rd(r.need) }) : ''}`;
     }
     if (!rep) return t('ask_nodata');
@@ -959,7 +959,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
         if (!(rep.total.perHr > 0) || !best) return t('ask_none');
         return t('goal_text', { goal: goal.toLocaleString('en-IN'), h1: Math.round(goal / rep.total.perHr * 10) / 10, h2: Math.round(goal / best * 10) / 10 });
       }
-      case 'fuel': { const pct = det.pct || 10, a = T.simulate(rep, {}), b = T.simulate(rep, { fuelPct: pct }); return t('ask_fuel', { p: pct, x: inr(a.cashMonth - b.cashMonth), cash: inr(b.cashMonth), base: inr(a.cashMonth) }); }
+      case 'fuel': { const pct = det.price ? Math.round((det.price / (S.profile.fuelPrice || 105) - 1) * 100) : (det.pct || 10), a = T.simulate(rep, {}), b = T.simulate(rep, { fuelPct: pct }); return t('ask_fuel', { p: pct, x: inr(a.cashMonth - b.cashMonth), cash: inr(b.cashMonth), base: inr(a.cashMonth) }); }
       default: return t('ask_help');
     }
   }
@@ -1075,6 +1075,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     b.innerHTML = `${ui.thumbs ? thumbsHTML(true) : ''}<h3 class="h2" style="font-size:22px">${nOrders ? esc(t('imp_found', { n: nOrders, s: P.sessions.length })) : esc(t('imp_none'))}</h3>
       <div class="rows" style="margin:8px 0 4px">${notes.join('')}${bad ? `<span class="pill dupp">${esc(t('imp_check_n', { n: bad }))}</span>` : ''}</div>
       ${P.unread ? `<div class="status err">${esc(t('imp_unread', { n: P.unread }))}</div>` : ''}
+      ${P.sessions.reduce((a, x) => a + (x.guessedHours || 0), 0) ? `<div class="status err">${esc(t('imp_guess', { n: P.sessions.reduce((a, x) => a + (x.guessedHours || 0), 0) }))}</div>` : ''}
       ${ui.msg && ui.msg.err ? `<div class="status err">${esc(ui.msg.text)}</div>` : ''}${cards}
       <div class="sticky-save"><button class="btn lg" id="p-save" style="flex:1"></button><button class="btn alt lg" id="p-discard">${t('imp_discard')}</button></div>`;
     const sync = () => { const n = P.sessions.filter(s => s.include).reduce((a, s) => a + s.orders.length, 0); const sv = $('#p-save', b); sv.textContent = t('imp_save', { n }); sv.disabled = !n; };

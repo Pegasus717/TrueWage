@@ -65,17 +65,29 @@
 
   function parseText(text, hint) {
     const platform = (KNOWN_PLATFORMS.find(p => new RegExp('\\b' + p + '\\b', 'i').test(text)) || (hint && hint.platform) || 'Unknown');
-    const dm = /(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/.exec(text) || null;
-    const date = dm ? dm[1] + '-' + String(dm[2]).padStart(2, '0') + '-' + String(dm[3]).padStart(2, '0') : (hint && hint.date) || new Date().toISOString().slice(0, 10);
-    const om = /online[^0-9]{0,12}(\d+)\s*h[^0-9]{0,4}(\d+)?\s*m?/i.exec(text);
-    const onlineMin = om ? (+om[1]) * 60 + (+om[2] || 0) : 0;
+    const MON = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+    const iso = (y, m, d) => (y < 100 ? 2000 + y : y) + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+    const okDate = (y, m, d) => m >= 1 && m <= 12 && d >= 1 && d <= 31 && (y < 100 ? 2000 + y : y) >= 2015;
+    let date = null, m1;
+    if ((m1 = /(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})/.exec(text)) && okDate(+m1[1], +m1[2], +m1[3])) date = iso(+m1[1], +m1[2], +m1[3]);
+    else if ((m1 = /(\d{1,2})(?:st|nd|rd|th)?[\s-]+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[,\s-]+(\d{2,4})/i.exec(text)) && okDate(+m1[3], MON[m1[2].toLowerCase()], +m1[1])) date = iso(+m1[3], MON[m1[2].toLowerCase()], +m1[1]);
+    else if ((m1 = /(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})/i.exec(text)) && okDate(+m1[3], MON[m1[1].toLowerCase()], +m1[2])) date = iso(+m1[3], MON[m1[1].toLowerCase()], +m1[2]);
+    else if ((m1 = /\b(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})\b/.exec(text)) && okDate(+m1[3], +m1[2], +m1[1])) date = iso(+m1[3], +m1[2], +m1[1]); // Indian day-first
+    if (!date) date = (hint && hint.date) || new Date().toISOString().slice(0, 10);
+    // online / logged-in time: "Online 5h 30m", "Logged in: 5 hrs 30 mins", "Login hours 5:30", "5h 30m online"
+    let onlineMin = 0, om;
+    if ((om = /(?:online|logged\s*in|login|duty|active)[^0-9\n]{0,16}(\d{1,2})\s*(?:hours?|hrs?|h|:)\s*(\d{1,2})?\s*(?:minutes|mins|min|m)?/i.exec(text)) || (om = /(\d{1,2})\s*(?:h|hrs?|hours?)\s*(\d{1,2})?\s*(?:minutes|mins|min|m)?\s*(?:online|logged|login|active)/i.exec(text))) onlineMin = (+om[1]) * 60 + (+om[2] || 0);
+    if (onlineMin > 24 * 60) onlineMin = 0;
     const orders = [];
-    let bonus = 0, unread = 0;
+    let bonus = 0, unread = 0, lastTime = null, guessedHours = 0;
     text.split(/\r?\n/).forEach(line => {
       const bm = !/\d[:.]\d{2}/.test(line) && /(bonus|incentive|surge|target)\D{0,16}(?:Rs\.?|₹|INR)?\s*([\d,]+)/i.exec(line);
       if (bm) { bonus += +bm[2].replace(/,/g, ''); return; }
-      const tm = /\b(\d{1,2})[:.](\d{2})\s*(am|pm)?\b/i.exec(line);
-      if (!tm) return;
+      let tm = /\b(\d{1,2})[:.](\d{2})\s*(am|pm)?\b/i.exec(line), guessed = false;
+      if (!tm) {
+        // an amount plus a distance is still an order; the hour is carried over from the previous order and flagged
+        if (/(?:₹|Rs\.?|INR)\s*[\d,]+/i.test(line) && /\d\s*km/i.test(line) && !/total|earning|week|today|km driven|distance/i.test(line)) { tm = [lastTime || '13:00']; guessed = true; } else return;
+      } else lastTime = tm[0].replace('.', ':');
       const amounts = [];
       line.replace(/(?:₹|Rs\.?|INR|â‚¹|\?)\s*([\d,]+(?:\.\d+)?)/gi, (m, a, off) => { amounts.push({ v: +a.replace(/,/g, ''), before: line.slice(Math.max(0, off - 2), off) }); return m; });
       if (!amounts.length) { if (/km|\u20B9|rs\b/i.test(line) || line.replace(/\D/g, '').length >= 4) unread++; return; }
@@ -83,9 +95,10 @@
       const zone = KNOWN_ZONES.find(z => new RegExp(z.slice(0, 7), 'i').test(line)) || (hint && hint.zone) || 'Unknown';
       const o = { hour: toHour(tm[0].replace('.', ':')), zone, km: km ? +km[1] : 0, pay: amounts[0].v, incentive: 0, deduction: 0, durMin: Math.round(10 + (km ? +km[1] : 3) * 3.4) };
       amounts.slice(1).forEach(a => { if (/-\s*$/.test(a.before) || /penalt|fee|fine|cut/i.test(line)) o.deduction += a.v; else o.incentive += a.v; });
+      if (guessed) guessedHours++;
       orders.push(o);
     });
-    return { id: 'ocr-' + Math.random().toString(36).slice(2, 7), date, platform, onlineMin, bonus, orders, unread, source: 'ocr' };
+    return { id: 'ocr-' + Math.random().toString(36).slice(2, 7), date, platform, onlineMin, bonus, orders, unread, guessedHours, source: 'ocr' };
   }
 
   async function extractWithOCR(dataUrls, onProgress) {
