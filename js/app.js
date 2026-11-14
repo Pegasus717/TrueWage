@@ -165,40 +165,21 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
   let EX = null;
   const exampleReport = () => EX || (EX = T.analyze(D.demoSessions(), Object.assign(T.defaultProfile('petrol'), D.DEMO_PROFILE)));
 
-  function routeArt() {
-    return `<svg class="routeart" viewBox="0 0 440 190" role="img" aria-label="An auto and a delivery bike on the road" preserveAspectRatio="xMidYMid meet">
-      <rect x="0" y="118" width="440" height="58" rx="10" fill="#17150F"/><rect x="0" y="118" width="440" height="6" fill="#F5D547"/>
-      <g stroke="#F5D547" stroke-width="4" stroke-dasharray="26 22" stroke-linecap="round"><path d="M10 150 H430"/></g>
-      <g transform="translate(250 56)"><!-- auto -->
-        <path d="M6 40 V22 q0-8 8-8 h46 q8 0 12 8 l12 20 v8 H6z" fill="#F5D547" stroke="#17150F" stroke-width="3" stroke-linejoin="round"/>
-        <path d="M10 22 q6-12 20-12 h32 q6 0 9 6 l6 8" fill="#17150F"/><rect x="18" y="22" width="26" height="12" rx="2" fill="#fff" stroke="#17150F" stroke-width="2"/><rect x="48" y="22" width="14" height="12" rx="2" fill="#fff" stroke="#17150F" stroke-width="2"/>
-        <circle cx="26" cy="52" r="11" fill="#17150F"/><circle cx="26" cy="52" r="4.5" fill="#F5D547"/><circle cx="72" cy="52" r="11" fill="#17150F"/><circle cx="72" cy="52" r="4.5" fill="#F5D547"/></g>
-      <g transform="translate(70 70)"><!-- delivery bike -->
-        <circle cx="16" cy="40" r="12" fill="none" stroke="#17150F" stroke-width="4"/><circle cx="66" cy="40" r="12" fill="none" stroke="#17150F" stroke-width="4"/>
-        <path d="M16 40 L30 22 H52 L66 40 M30 22 L26 14 H18 M52 22 L48 12 H56" fill="none" stroke="#17150F" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-        <rect x="30" y="2" width="22" height="18" rx="3" fill="#F5D547" stroke="#17150F" stroke-width="3"/><circle cx="41" cy="-6" r="8" fill="#17150F"/>
-        <path d="M34 11h14M34 15h9" stroke="#17150F" stroke-width="2" stroke-linecap="round"/></g>
-      <g transform="translate(18 26)"><path d="M14 0a10 10 0 0 1 10 10c0 8-10 20-10 20S4 18 4 10A10 10 0 0 1 14 0z" fill="#B5371A"/><circle cx="14" cy="10" r="3.5" fill="#fff"/></g>
-      <g transform="translate(396 20)"><path d="M14 0a10 10 0 0 1 10 10c0 8-10 20-10 20S4 18 4 10A10 10 0 0 1 14 0z" fill="#0A6A46"/><circle cx="14" cy="10" r="3.5" fill="#fff"/></g>
-      <path d="M40 40 C 120 4, 300 4, 400 36" fill="none" stroke="#756F62" stroke-width="3" stroke-dasharray="2 9" stroke-linecap="round"/>
-    </svg>`;
-  }
-
   /** Speedometer: needle = what you really earn per hour, yellow marker = what the apps imply, white tick = the fair-wage line. */
   function gaugeSVG(real, claimed, fair) {
     const max = Math.max(10, Math.ceil(Math.max(real, claimed, fair) * 1.15 / 10) * 10), W = 300, H = 215, cx = 150, cy = 150, R = 118;
     const ang = v => Math.PI * (1 - Math.max(0, Math.min(max, v)) / max), pt = (v, r) => [cx + r * Math.cos(ang(v)), cy - r * Math.sin(ang(v))];
     const arc = (a, b, r, col, w) => { const [x1, y1] = pt(a, r), [x2, y2] = pt(b, r); return `<path d="M${x1.toFixed(1)} ${y1.toFixed(1)} A${r} ${r} 0 0 1 ${x2.toFixed(1)} ${y2.toFixed(1)}" fill="none" stroke="${col}" stroke-width="${w}" stroke-linecap="butt"/>`; };
     const fairV = Math.min(fair, max), [nx, ny] = pt(Math.max(0, real), R - 14), [fx1, fy1] = pt(fairV, R - 17), [fx2, fy2] = pt(fairV, R + 17), [mx, my] = pt(claimed, R + 24), [mx2, my2] = pt(claimed, R + 10);
-    const ticks = [0, 0.25, 0.5, 0.75, 1].map(f => { const v = max * f, [a, b] = pt(v, R + 8), [c, d] = pt(v, R + 17); return `<path d="M${a.toFixed(1)} ${b.toFixed(1)} L${c.toFixed(1)} ${d.toFixed(1)}" stroke="#8A8376" stroke-width="2"/>`; }).join('');
+    const ticks = [0, 0.25, 0.5, 0.75, 1].map(f => { const v = max * f, [a, b] = pt(v, R + 8), [c, d] = pt(v, R + 17); return `<path d="M${a.toFixed(1)} ${b.toFixed(1)} L${c.toFixed(1)} ${d.toFixed(1)}" stroke="rgba(255,255,255,.55)" stroke-width="2" stroke-linecap="round"/>`; }).join('');
     return `<svg class="gauge" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(t('gauge_aria', { real: inr(real), app: inr(claimed), fair: inr(fair) }))}">
-      ${arc(0, fairV, R, '#E4572E', 16)}${arc(fairV, max, R, '#3DDC97', 16)}${ticks}
-      <path d="M${fx1.toFixed(1)} ${fy1.toFixed(1)} L${fx2.toFixed(1)} ${fy2.toFixed(1)}" stroke="#FF8A6B" stroke-width="4"/>
-      <path d="M${mx2.toFixed(1)} ${my2.toFixed(1)} L${(mx + (cx - mx) * 0.06).toFixed(1)} ${(my + (cy - my) * 0.06).toFixed(1)}" stroke="#FFC400" stroke-width="7" stroke-linecap="round"/>
-      <g class="needle" style="--from:${(-(180 - ang(Math.max(0, real)) * 180 / Math.PI)).toFixed(1)}deg"><path d="M${cx} ${cy} L${nx.toFixed(1)} ${ny.toFixed(1)}" stroke="#fff" stroke-width="5" stroke-linecap="round"/></g><circle cx="${cx}" cy="${cy}" r="9" fill="#fff"/><circle cx="${cx}" cy="${cy}" r="4" fill="#17150F"/>
+      ${arc(0, fairV, R, '#FF9B85', 16)}${arc(fairV, max, R, '#8DF0D0', 16)}${ticks}
+      <path d="M${fx1.toFixed(1)} ${fy1.toFixed(1)} L${fx2.toFixed(1)} ${fy2.toFixed(1)}" stroke="#fff" stroke-width="4" stroke-linecap="round"/>
+      <path d="M${mx2.toFixed(1)} ${my2.toFixed(1)} L${(mx + (cx - mx) * 0.06).toFixed(1)} ${(my + (cy - my) * 0.06).toFixed(1)}" stroke="#FFC04D" stroke-width="8" stroke-linecap="round"/>
+      <g class="needle" style="--from:${(-(180 - ang(Math.max(0, real)) * 180 / Math.PI)).toFixed(1)}deg"><path d="M${cx} ${cy} L${nx.toFixed(1)} ${ny.toFixed(1)}" stroke="#fff" stroke-width="5" stroke-linecap="round"/></g><circle cx="${cx}" cy="${cy}" r="9" fill="#fff"/><circle cx="${cx}" cy="${cy}" r="4" fill="#0B5A54"/>
       <text x="${cx}" y="${cy + 42}" text-anchor="middle" class="g-big">${esc(inr(real))}</text><text x="${cx}" y="${cy + 62}" text-anchor="middle" class="g-sm">${esc(t('gauge_unit'))}</text>
     </svg>
-    <div class="g-leg"><span><i style="background:#fff"></i>${esc(t('gauge_real'))}</span><span><i style="background:#FFC400"></i>${esc(t('gauge_apps', { v: inr(claimed) }))}</span><span><i style="background:#E4572E"></i>${esc(t('gauge_fair', { v: inr(fair) }))}</span></div>`;
+    <div class="g-leg"><span><i style="background:#fff"></i>${esc(t('gauge_real'))}</span><span><i style="background:#FFC04D"></i>${esc(t('gauge_apps', { v: inr(claimed) }))}</span><span><i style="background:#FF9B85"></i>${esc(t('gauge_fair', { v: inr(fair) }))}</span></div>`;
   }
   function checklistHTML() {
     const steps = [[S.sessions.length > 0, 'ck_1', 'import'], [(S.expenses || []).some(e => e.category === 'fuel'), 'ck_2', 'expenses'], [S.shifts.length > 0, 'ck_3', null]], done = steps.filter(x => x[0]).length;
@@ -220,7 +201,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
           <h1>${t('hero_h')}</h1><p class="lead">${t('hero_p')}</p>
           <div class="langs"><div class="eyebrow">${t('pick_lang')}</div><div class="seg" id="lseg">${langs}</div></div>
           <div class="cta"><button class="btn lg" id="l-signup">${t('au_cta')}</button><button class="btn lg alt" id="l-login">${t('au_login')}</button></div><div class="eyebrow" style="margin:16px 0 6px">${t('au_demo_h')}</div><div class="cta"><button class="btn alt" id="l-demo">${t('dm_hyd')}</button><button class="btn alt" id="l-demo2">${t('dm_blr')}</button></div><p style="margin-top:12px"><button class="link" id="l-add">${t('au_guest')}</button></p></div>
-        <div>${routeArt()}${smallReceipt(r, t('period_all'), true)}</div></div>
+        <div>${smallReceipt(r, t('period_all'), true)}</div></div>
       <div class="steps">
         <div><span class="n">1</span><div><h3>${t('step_1')}</h3><p>${t('st1_p')}</p></div></div>
         <div><span class="n">2</span><div><h3>${t('step_2')}</h3><p>${t('st2_p')}</p></div></div>
@@ -320,7 +301,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
             <div class="kbar" aria-hidden="true"><i style="width:${keptPct}%"></i></div>
             <div class="kbar-l"><span>${esc(t('kept_pct', { p: keptPct }))}</span><span>${Math.round(r.hours * 10) / 10} ${t('hours')} · ${rd(r.orders)} ${t('orders_n')}</span></div></section>
           ${nextStepHTML(rep, plan)}
-          <div class="acts"><button class="btn lg" id="a-check">${t('n_check')}</button><button class="btn lg alt" id="a-add">${t('add_shots')}</button></div>
+          <div class="acts"><button class="btn lg" id="a-check">${ic('check')}${t('n_check')}</button><button class="btn lg alt" id="a-add">${ic('upload')}${t('add_shots')}</button></div>
           ${tourHTML()}
           ${shiftCardHTML(rep)}
           <div class="rows"><button class="btn sm alt" id="share">${ic('share')}${t('share_btn')}</button><button class="btn sm alt" id="spk-day">${ic('volume')}${t('speak')}</button></div>
@@ -414,7 +395,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
       const s = rep.byHour[h], x = L + (h - h0) * bw + bw * .12, w = bw * .76;
       if (h % 2 === 0 || n < 10) out += `<text x="${x + w / 2}" y="${H - 7}" text-anchor="middle">${h}</text>`;
       if (s.hours < 0.5) { out += `<rect x="${x}" y="${y(0) - 2}" width="${w}" height="2" fill="var(--rule)"/>`; continue; }
-      const col = s.perHr < mw * 0.6 ? 'var(--lost)' : s.perHr < mw ? '#C8912A' : 'var(--kept)';
+      const col = s.perHr < mw * 0.6 ? 'var(--lost)' : s.perHr < mw ? '#E8960F' : 'var(--kept)';
       const ya = y(Math.max(0, s.perHr)), yb = y(Math.min(0, s.perHr));
       out += `<rect x="${x}" y="${ya}" width="${w}" height="${Math.max(2, yb - ya)}" rx="2" fill="${col}"><title>${h}:00 → ${inr(s.perHr)}/h (${s.n})</title></rect>`;
       if (s === lo || s === hi) out += `<text class="lab" x="${x + w / 2}" y="${ya - 6}" text-anchor="middle">${inr(s.perHr)}</text>`;
@@ -423,8 +404,8 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(t('when_h'))}">${out}</svg>`;
   }
   function heatColor(v, mw) {
-    if (v >= mw) { const k = Math.min(1, (v - mw) / (mw * .8)); return `rgba(10,106,70,${(.14 + .4 * k).toFixed(2)})`; }
-    const k = Math.min(1, (mw - v) / mw); return `rgba(181,55,26,${(.14 + .4 * k).toFixed(2)})`;
+    if (v >= mw) { const k = Math.min(1, (v - mw) / (mw * .8)); return `rgba(15,118,110,${(.14 + .4 * k).toFixed(2)})`; }
+    const k = Math.min(1, (mw - v) / mw); return `rgba(214,69,48,${(.14 + .4 * k).toFixed(2)})`;
   }
   function heatmapHTML(cells, zones, mine, mw) {
     const dps = T.DAYPARTS;
@@ -523,7 +504,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     if (rep.dataQuality.level === 'low') { b.innerHTML = `<p class="dq low">${t('a_lowdata', { days: rep.dataQuality.days, orders: rep.dataQuality.orders })}</p>`; return; }
     const zones = rep.byZone.map(z => z.key), maxP = Math.max(...rep.byPlatform.map(p => Math.max(p.appPerHr, p.perHr)), 1);
     b.innerHTML = `<section class="card" style="margin-bottom:20px"><h3 class="h3">${t('hw_h')}</h3>${weekdayHeatHTML(rep)}</section><div class="cols two">
-        <section class="card"><h3 class="h3">${t('when_h')}</h3>${hourSVG(rep)}<div class="legend"><span><i style="background:var(--lost)"></i>&lt; 60%</span><span><i style="background:#C8912A"></i>&lt; ${t('minwage').split('(')[0].trim()}</span><span><i style="background:var(--kept)"></i>≥</span></div></section>
+        <section class="card"><h3 class="h3">${t('when_h')}</h3>${hourSVG(rep)}<div class="legend"><span><i style="background:var(--lost)"></i>&lt; 60%</span><span><i style="background:#E8960F"></i>&lt; ${t('minwage').split('(')[0].trim()}</span><span><i style="background:var(--kept)"></i>≥</span></div></section>
         <section class="card"><h3 class="h3">${t('per_hr_real')}</h3>${weekdaySVG(rep)}</section></div>
       <section class="card sec" style="margin-top:20px"><h3 class="h3">${t('where_h')}</h3>${heatmapHTML(rep.zoneDaypart, zones, null, rep.profile.minWage)}</section>
       <div class="cols two" style="margin-top:20px">
@@ -536,7 +517,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     const tt = rep.total, d = rep.daysWorked;
     b.innerHTML = `<div class="cols two">
         <section class="card"><h3 class="h3">${t('cost_h')} · ${inr(tt.cost / d)} / ${t('per_wd')}</h3>
-          ${stacked([{ l: t('c_fuel'), v: tt.fuel, c: '#B5371A' }, { l: t('c_maint'), v: tt.maint, c: '#C8912A' }, { l: t('c_data'), v: tt.data, c: '#8A8376' }, { l: t('c_fixed'), v: tt.fixed, c: '#4B463C' }].filter(x => x.v > 0))}
+          ${stacked([{ l: t('c_fuel'), v: tt.fuel, c: '#D64530' }, { l: t('c_maint'), v: tt.maint, c: '#E8960F' }, { l: t('c_data'), v: tt.data, c: '#8FA3A7' }, { l: t('c_fixed'), v: tt.fixed, c: '#0F766E' }].filter(x => x.v > 0))}
           <p class="note" style="margin-top:8px">${inr(tt.cost / tt.totalKm)} / km · ${t('km_paid')} ${rd(tt.km)} · ${t('km_unpaid')} ${rd(tt.deadKmAbs)} (${inr(tt.deadCost)})</p></section>
         <section class="card"><h3 class="h3">${t('time_h')}</h3>
           ${stacked([{ l: t('time_ride'), v: tt.dur / 60, c: 'var(--kept)' }, { l: t('time_wait'), v: tt.wait / 60, c: 'var(--lost)' }])}
@@ -743,7 +724,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     $('#paper').innerHTML = `<div class="paper">
       <div class="rows between" style="align-items:start"><div><h2>Income Statement</h2><small style="color:#555">Self-reported platform earnings · tamper-evident${st.evidence.demo ? ' · DEMO DATA' : ''}</small></div><div style="text-align:right"><b>${esc(id)}</b><br><small>${new Date().toISOString().slice(0, 10)}</small></div></div>
       <p style="margin-top:14px"><b>${esc(st.rider.name)}</b> ${st.rider.phone ? '· ' + esc(st.rider.phone) : ''}<br><span style="color:#555">Platforms: ${st.platforms.map(esc).join(', ')} · ${st.period.from} to ${st.period.to} · ${st.period.daysWorked} days worked</span></p>
-      ${st.period.short ? `<p class="note" style="color:#8A5700"><b>${t('short_period')}</b></p>` : ''}
+      ${st.period.short ? `<p class="note" style="color:#94590A"><b>${t('short_period')}</b></p>` : ''}
       <div class="sg"><div><small>${t('loan_monthly')}</small><b>${f(st.monthly.beforeEmi)}</b></div><div><small>${t('c_cash')} / month</small><b>${f(st.monthly.net)}</b></div>
         <div><small>${t('loan_emi')}</small><b>${f(st.emiCapacity)}</b></div><div><small>${t('loan_stab')}</small><b>${st.stability}%</b></div></div>
       <table><tr><td>${t('c_app')}</td><td>${f(tt.appShown)}</td></tr><tr><td>− ${t('c_ded')}</td><td>${f(tt.deductions)}</td></tr><tr><td>− ${t('c_fuel')}</td><td>${f(tt.fuel)}</td></tr>
@@ -786,24 +767,29 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
   /* ---------- share card ---------- */
   async function shareReceipt(r, label) {
     const W = 1080, H = 1350, c = document.createElement('canvas'); c.width = W; c.height = H;
-    const g = c.getContext('2d');
-    g.fillStyle = '#F7F5EF'; g.fillRect(0, 0, W, H);
-    g.fillStyle = '#17150F'; g.font = '700 54px Georgia, serif'; g.fillText('TrueWage', 70, 110);
-    g.font = '500 30px system-ui, sans-serif'; g.fillStyle = '#4B463C'; g.fillText(label + ' · ' + (Math.round(r.hours * 10) / 10) + ' h online', 70, 160);
-    g.fillStyle = '#17150F'; g.font = '600 84px Georgia, serif';
-    g.fillText('The apps showed', 70, 300); g.fillStyle = '#756F62'; g.fillText(inr(r.appShown), 70, 400);
-    g.fillStyle = '#17150F'; g.fillText('I really kept', 70, 540);
-    const kept = inr(r.net); g.font = '700 190px Georgia, serif';
-    const w = g.measureText(kept).width; g.fillStyle = '#F5D547'; g.fillRect(60, 650, w + 30, 70); g.fillStyle = r.net < 0 ? '#B5371A' : '#17150F'; g.fillText(kept, 70, 720);
-    g.font = '500 34px system-ui, sans-serif';
+    const g = c.getContext('2d'), F = '"Plus Jakarta Sans", system-ui, sans-serif';
+    try { await Promise.all([document.fonts.load('800 60px "Plus Jakarta Sans"'), document.fonts.load('600 30px "Plus Jakarta Sans"')]); } catch (e) { /* system font is fine */ }
+    const rr = (x, y, w, h, rad) => { g.beginPath(); g.moveTo(x + rad, y); g.arcTo(x + w, y, x + w, y + h, rad); g.arcTo(x + w, y + h, x, y + h, rad); g.arcTo(x, y + h, x, y, rad); g.arcTo(x, y, x + w, y, rad); g.closePath(); };
+    const bg = g.createLinearGradient(0, 0, W, H); bg.addColorStop(0, '#FFF8F0'); bg.addColorStop(1, '#FFE9CC'); g.fillStyle = bg; g.fillRect(0, 0, W, H);
+    g.fillStyle = '#0F766E'; rr(70, 70, 64, 64, 20); g.fill();
+    g.fillStyle = '#1E2B2F'; g.font = '800 54px ' + F; g.fillText('TrueWage', 152, 120);
+    g.font = '600 30px ' + F; g.fillStyle = '#4F5F63'; g.fillText(label + ' · ' + (Math.round(r.hours * 10) / 10) + ' h online', 70, 200);
+    g.font = '600 46px ' + F; g.fillStyle = '#6B7D81'; g.fillText('The apps showed', 70, 320);
+    g.font = '800 92px ' + F; g.fillStyle = '#4F5F63'; g.fillText(inr(r.appShown), 70, 420);
+    const card = g.createLinearGradient(60, 490, W - 60, 860); card.addColorStop(0, '#138A80'); card.addColorStop(1, '#0B5A54');
+    g.fillStyle = card; rr(60, 490, W - 120, 340, 56); g.fill();
+    g.fillStyle = 'rgba(255,255,255,.8)'; g.font = '600 42px ' + F; g.fillText('I really kept', 110, 575);
+    const kept = inr(r.net); let size = 180; g.font = '800 ' + size + 'px ' + F; while (g.measureText(kept).width > W - 220 && size > 80) { size -= 8; g.font = '800 ' + size + 'px ' + F; }
+    g.fillStyle = r.net < 0 ? '#FFC4B8' : '#fff'; g.fillText(kept, 110, 760);
+    g.font = '600 36px ' + F;
     const lines = [[t('c_ded'), r.deduction], [t('g_vehicle'), r.fuel + r.maint], [t('c_data'), r.data], [t('c_fixed'), r.fixed]].filter(l => l[1] >= 0.5);
-    let y = 810; g.fillStyle = '#4B463C';
-    lines.forEach(l => { g.fillText(l[0], 70, y); g.textAlign = 'right'; g.fillStyle = '#B5371A'; g.fillText('−' + inr(l[1]), W - 70, y); g.textAlign = 'left'; g.fillStyle = '#4B463C'; y += 52; });
-    g.fillStyle = '#17150F'; g.fillRect(70, y + 10, W - 140, 3);
-    g.font = '600 52px Georgia, serif'; g.fillStyle = '#0A6A46'; g.fillText(inr(r.perHr) + ' / hour, for real', 70, y + 90);
-    g.font = '500 30px system-ui, sans-serif'; g.fillStyle = '#4B463C'; g.fillText('Not ' + inr(r.appPerHr) + ' / hour. Know your TrueWage.', 70, y + 140);
-    if (S.demo) { g.fillStyle = '#B5371A'; g.fillText('SAMPLE RIDER · SIMULATED DATA', 70, H - 110); }
-    g.fillStyle = '#756F62'; g.fillText('#TrueWage  #GigWorkers', 70, H - 60);
+    let y = 920; g.fillStyle = '#4F5F63';
+    lines.forEach(l => { g.fillStyle = '#4F5F63'; g.fillText(l[0], 70, y); g.textAlign = 'right'; g.fillStyle = '#D64530'; g.fillText('−' + inr(l[1]), W - 70, y); g.textAlign = 'left'; y += 56; });
+    g.fillStyle = '#E0D3BE'; g.fillRect(70, y - 18, W - 140, 3);
+    g.font = '800 56px ' + F; g.fillStyle = '#0F766E'; g.fillText(inr(r.perHr) + ' an hour, for real', 70, y + 62);
+    g.font = '600 32px ' + F; g.fillStyle = '#4F5F63'; g.fillText('Not ' + inr(r.appPerHr) + ' an hour. Know your TrueWage.', 70, y + 118);
+    if (S.demo) { g.fillStyle = '#D64530'; g.fillText('SAMPLE RIDER · SIMULATED DATA', 70, H - 110); }
+    g.fillStyle = '#6B7D81'; g.fillText('#TrueWage  #GigWorkers', 70, H - 60);
     const blob = await new Promise(res => c.toBlob(res, 'image/png'));
     const file = new File([blob], 'truewage-receipt.png', { type: 'image/png' });
     if (navigator.canShare && navigator.canShare({ files: [file] })) { try { await navigator.share({ files: [file], text: 'The apps showed ' + inr(r.appShown) + '. I really kept ' + inr(r.net) + '. #TrueWage' }); return; } catch (e) { /* cancelled */ } }
@@ -1426,6 +1412,8 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     $('#file').onchange = e => { const fl = Array.from(e.target.files); e.target.value = ''; handleFiles(fl); };
     $('#backup-file').onchange = e => { if (e.target.files[0]) importBackup(e.target.files[0]); e.target.value = ''; };
     applyStatic();
+    const bar = $('.bar'), onScroll = () => bar.classList.toggle('scrolled', window.scrollY > 6);
+    window.addEventListener('scroll', onScroll, { passive: true }); onScroll();
     if (S.sessions.length) recompute();
     R.aiAvailable().then(ai => { ui.ai = !!ai; $('#foot-mode').textContent = ai ? 'AI: Claude vision + Ask' : 'AI reader: on-device OCR \u00B7 Ask answers on-device'; });
     $('#fab').onclick = () => openSheet('ask'); syncFab();
