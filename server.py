@@ -37,7 +37,9 @@ def load_dotenv(path):
                 line = line.strip()
                 if line and not line.startswith("#") and "=" in line:
                     k, v = line.split("=", 1)
-                    os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+                    k = k.strip()
+                    if not os.environ.get(k, "").strip():  # a real, non-empty environment variable wins; an empty one does not block the .env value
+                        os.environ[k] = v.strip().strip('"').strip("'")
     except OSError:
         pass
 
@@ -61,7 +63,7 @@ STATIC_OK = re.compile(r"^/(index\.html|manifest\.json|sw\.js|icon\.svg|css/[\w.
 MIME = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "application/javascript; charset=utf-8",
         ".json": "application/manifest+json", ".svg": "image/svg+xml"}
 
-PROMPT_VERSION = "v2"
+PROMPT_VERSION = "v3"
 PROMPT = """You read screenshots from Indian gig-work apps (Swiggy, Zomato, Rapido, Ola, Uber, Porter, Blinkit, Zepto, Shadowfax ...), for riders and drivers.
 Screens may be low resolution, cropped, dark or light, English / Hindi / Telugu / Tamil / Kannada or mixed. The images are numbered 1..N in the order given.
 Return ONLY JSON, no prose, exactly this shape (one entry per image, in order):
@@ -70,12 +72,12 @@ Return ONLY JSON, no prose, exactly this shape (one entry per image, in order):
 "orders":[{"time":"HH:MM or null","zone":"locality or null","km":null,"pay":0,"incentive":0,"deduction":0,"duration_min":null}],
 "offer":{"pay":0,"km":0},"note":"short plain note or null"}]}
 KINDS: order_list = several completed orders listed (history); trip_detail = one finished trip with its earnings / breakup / distance;
-daily_summary = day totals ("14 completed orders, Rs 3109"); order_offer = a NEW ORDER OFFER the rider can still accept (route, fare, Accept button): put pay and total km in "offer", leave "orders" empty;
+daily_summary = day totals ("14 completed orders, Rs 3109"); order_offer = a NEW ORDER OFFER the rider can still accept (route, fare, Accept button): put pay and total km in "offer", leave "orders" empty. Always give your best number: if the fare is shown as "A + B" use A+B; ignore a separate "customer added extra" line (mention it in note). Total km = every distance shown on the route added together. Never leave offer pay null just because it is slightly ambiguous: explain the ambiguity in note;
 other = not about earnings or offers (return empty orders).
 RULES:
 - Amounts are rupees as plain numbers (Rs 51.3 -> 51.3). Ignore the rupee sign. Use 24-hour time. Unknown values are null (never 0 for "unknown", never a guess).
 - 'pay' = what the rider EARNED for that order or trip: use the headline net figure the screen calls Total earnings / Trip earnings / Order pay / the amount beside that order in history. Do NOT use: customer fare before fees, tax collected, cash collected from the customer, wallet deductions, tips already inside the headline, or the running totals.
-- 'incentive' = a separately shown surge / peak / extra for that order. 'deduction' = a penalty or fee shown separately and NOT already subtracted in the headline figure. 'bonus' = a daily / weekly target or joining bonus not tied to one order.
+- 'incentive' = a surge / peak / extra for that order ONLY when it is listed separately and is NOT part of a breakup that adds up to the headline earnings. Components shown under a "Total earnings" breakup (base fare, time fare, distance fare, surge, platform charge) are already inside it: set incentive 0 and deduction 0 and never add them again. 'deduction' = a penalty or fee shown separately and NOT already subtracted in the headline figure. 'bonus' = a daily / weekly target or joining bonus not tied to one order.
 - 'km' = total distance of the trip (pickup leg + drop leg when both are shown). 'duration_min' = trip minutes if shown, or delivered time minus assigned time. 'time' = when the trip started / was assigned / listed.
 - 'zone' = locality or area name ONLY (for example "Banjara Hills"). Never return names, phone numbers, order ids, house numbers or full addresses.
 - A history list that shows only some orders: return the ones you can read, and ALSO put the screen's own count and total in reported_orders / reported_total.
