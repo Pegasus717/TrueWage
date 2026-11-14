@@ -25,7 +25,10 @@
     upload: '<path d="M12 16V4M7 9l5-5 5 5M4 20h16"/>',
     user: '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-7 8-7s8 3 8 7"/>',
     image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M21 16l-5-5-8 8"/>',
-    mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>'
+    mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
+    bike: '<circle cx="5.5" cy="17" r="3.2"/><circle cx="18.5" cy="17" r="3.2"/><path d="M5.5 17l3.5-7h5l2 4h2.5M9 10L7.5 7H5M13 10l-1.5-3H10"/>',
+    auto: '<circle cx="6" cy="18" r="2.6"/><circle cx="18" cy="18" r="2.6"/><path d="M3 15V9l4-4h9l3 4v6h-3.4M8.6 18h6.8M3 15h2.4M10 5v5h9"/>',
+    gauge: '<path d="M4 18a8 8 0 1 1 16 0"/><path d="M12 18l4-5"/>'
   };
   const ic = n => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${ICON[n]}</svg>`;
 
@@ -33,14 +36,14 @@
     sessions: [], profile: T.defaultProfile('petrol'), hashes: [], reader: null, lastBatch: [], shared: false,
     rider: { name: '', phone4: '' }, lang: 'en', report: null, tab: 'home', demo: false,
     day: null, goal: 800, simHour: null, oc: null, fairTarget: null, wi: { hours: {}, days: null, fuel: 0 }, pending: null,
-    insSeg: 'coach', city: 'Hyderabad', citySeg: 'map', advAll: false, fullCalc: false, sheet: null, vehicleOk: false, tourDone: false, big: false, shifts: [], shift: null, meas: null, user: null, ver: 0, authMode: 'register'
+    insSeg: 'coach', city: 'Hyderabad', citySeg: 'map', advAll: false, fullCalc: false, sheet: null, vehicleOk: false, tourDone: false, big: false, shifts: [], shift: null, meas: null, expenses: [], fills: null, user: null, ver: 0, authMode: 'register'
   };
   const ui = { busy: false, msg: null, thumbs: null, open: new Set(), chat: [], ai: false, listening: false, thinking: false, sync: 'idle' };
 
   /* ---------- persistence (best-effort; the app works without it) ---------- */
   const KEY = 'truewage.v3';
-  const PERSIST = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shared', 'rider', 'lang', 'demo', 'goal', 'vehicleOk', 'tourDone', 'big', 'shifts', 'shift', 'city'];
-const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shared', 'rider', 'lang', 'demo', 'goal', 'vehicleOk', 'tourDone', 'big', 'shifts', 'city'];
+  const PERSIST = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shared', 'rider', 'lang', 'demo', 'goal', 'vehicleOk', 'tourDone', 'big', 'shifts', 'shift', 'city', 'expenses'];
+const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shared', 'rider', 'lang', 'demo', 'goal', 'vehicleOk', 'tourDone', 'big', 'shifts', 'city', 'expenses'];
   const LOCALKEY = () => (S.user ? 'truewage.u' + S.user.id : KEY);
   function save() {
     try { const o = {}; PERSIST.forEach(k => o[k] = S[k]); localStorage.setItem(LOCALKEY(), JSON.stringify(o)); } catch (e) { /* private mode */ }
@@ -58,8 +61,12 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
      GPS-measured unpaid-riding factor replaces our assumption. */
   function effective() {
     const sess = T.applyShifts(S.sessions, S.shifts), m = T.measuredDeadKm(S.sessions, S.shifts);
-    S.meas = m;
-    return { sess, prof: m.reliable ? Object.assign({}, S.profile, { deadKm: m.factor, deadMeasured: true }) : S.profile };
+    S.meas = m; S.fills = T.fuelFromFills(S.expenses);
+    let prof = m.reliable ? Object.assign({}, S.profile, { deadKm: m.factor, deadMeasured: true }) : Object.assign({}, S.profile);
+    if (S.demo) { prof.expenses = []; return { sess, prof }; }                    // the sample rider never mixes with a real rider's logged costs
+    if (S.fills.reliable && !(S.profile.fuelPerKmOverride > 0)) prof.fuelPerKmOverride = S.fills.perKm;   // measured petrol cost beats the estimate (a manual value still wins)
+    prof.expenses = S.expenses || [];
+    return { sess, prof };
   }
   function recompute() { const e = effective(); S.report = S.sessions.length ? T.analyze(e.sess, e.prof) : null; save(); }
   const dLabel = (iso, o) => new Date(iso + 'T00:00:00').toLocaleDateString(LOC[S.lang], o);
@@ -159,12 +166,39 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
   const exampleReport = () => EX || (EX = T.analyze(D.demoSessions(), Object.assign(T.defaultProfile('petrol'), D.DEMO_PROFILE)));
 
   function routeArt() {
-    return `<svg class="routeart" viewBox="0 0 420 120" role="img" aria-label="Delivery route from restaurant to customer" preserveAspectRatio="xMidYMid meet">
-      <path d="M30 92 C 110 20, 170 110, 250 58 S 360 30, 392 70" fill="none" stroke="var(--ink3)" stroke-width="3" stroke-dasharray="2 9" stroke-linecap="round"/>
-      <g transform="translate(18 76)"><circle cx="12" cy="12" r="12" fill="var(--ink)"/><path d="M7 14h10M9 9h6" stroke="#fff" stroke-width="2" stroke-linecap="round"/></g>
-      <g transform="translate(378 52)"><path d="M14 0a10 10 0 0 1 10 10c0 8-10 20-10 20S4 18 4 10A10 10 0 0 1 14 0z" fill="var(--kept)"/><circle cx="14" cy="10" r="3.5" fill="#fff"/></g>
-      <g transform="translate(176 52)"><circle cx="8" cy="30" r="9" fill="none" stroke="var(--ink)" stroke-width="3"/><circle cx="40" cy="30" r="9" fill="none" stroke="var(--ink)" stroke-width="3"/><path d="M8 30l12-14h14l6 14M20 16l-4-8h-6" fill="none" stroke="var(--ink)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><rect x="22" y="2" width="16" height="14" rx="3" fill="var(--mark)" stroke="var(--ink)" stroke-width="2.5"/></g>
+    return `<svg class="routeart" viewBox="0 0 440 190" role="img" aria-label="An auto and a delivery bike on the road" preserveAspectRatio="xMidYMid meet">
+      <rect x="0" y="118" width="440" height="58" rx="10" fill="#17150F"/><rect x="0" y="118" width="440" height="6" fill="#F5D547"/>
+      <g stroke="#F5D547" stroke-width="4" stroke-dasharray="26 22" stroke-linecap="round"><path d="M10 150 H430"/></g>
+      <g transform="translate(250 56)"><!-- auto -->
+        <path d="M6 40 V22 q0-8 8-8 h46 q8 0 12 8 l12 20 v8 H6z" fill="#F5D547" stroke="#17150F" stroke-width="3" stroke-linejoin="round"/>
+        <path d="M10 22 q6-12 20-12 h32 q6 0 9 6 l6 8" fill="#17150F"/><rect x="18" y="22" width="26" height="12" rx="2" fill="#fff" stroke="#17150F" stroke-width="2"/><rect x="48" y="22" width="14" height="12" rx="2" fill="#fff" stroke="#17150F" stroke-width="2"/>
+        <circle cx="26" cy="52" r="11" fill="#17150F"/><circle cx="26" cy="52" r="4.5" fill="#F5D547"/><circle cx="72" cy="52" r="11" fill="#17150F"/><circle cx="72" cy="52" r="4.5" fill="#F5D547"/></g>
+      <g transform="translate(70 70)"><!-- delivery bike -->
+        <circle cx="16" cy="40" r="12" fill="none" stroke="#17150F" stroke-width="4"/><circle cx="66" cy="40" r="12" fill="none" stroke="#17150F" stroke-width="4"/>
+        <path d="M16 40 L30 22 H52 L66 40 M30 22 L26 14 H18 M52 22 L48 12 H56" fill="none" stroke="#17150F" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+        <rect x="30" y="2" width="22" height="18" rx="3" fill="#F5D547" stroke="#17150F" stroke-width="3"/><circle cx="41" cy="-6" r="8" fill="#17150F"/>
+        <path d="M34 11h14M34 15h9" stroke="#17150F" stroke-width="2" stroke-linecap="round"/></g>
+      <g transform="translate(18 26)"><path d="M14 0a10 10 0 0 1 10 10c0 8-10 20-10 20S4 18 4 10A10 10 0 0 1 14 0z" fill="#B5371A"/><circle cx="14" cy="10" r="3.5" fill="#fff"/></g>
+      <g transform="translate(396 20)"><path d="M14 0a10 10 0 0 1 10 10c0 8-10 20-10 20S4 18 4 10A10 10 0 0 1 14 0z" fill="#0A6A46"/><circle cx="14" cy="10" r="3.5" fill="#fff"/></g>
+      <path d="M40 40 C 120 4, 300 4, 400 36" fill="none" stroke="#756F62" stroke-width="3" stroke-dasharray="2 9" stroke-linecap="round"/>
     </svg>`;
+  }
+
+  /** Speedometer: needle = what you really earn per hour, yellow marker = what the apps imply, white tick = the fair-wage line. */
+  function gaugeSVG(real, claimed, fair) {
+    const max = Math.max(10, Math.ceil(Math.max(real, claimed, fair) * 1.15 / 10) * 10), W = 300, H = 215, cx = 150, cy = 150, R = 118;
+    const ang = v => Math.PI * (1 - Math.max(0, Math.min(max, v)) / max), pt = (v, r) => [cx + r * Math.cos(ang(v)), cy - r * Math.sin(ang(v))];
+    const arc = (a, b, r, col, w) => { const [x1, y1] = pt(a, r), [x2, y2] = pt(b, r); return `<path d="M${x1.toFixed(1)} ${y1.toFixed(1)} A${r} ${r} 0 0 1 ${x2.toFixed(1)} ${y2.toFixed(1)}" fill="none" stroke="${col}" stroke-width="${w}" stroke-linecap="butt"/>`; };
+    const fairV = Math.min(fair, max), [nx, ny] = pt(Math.max(0, real), R - 14), [fx1, fy1] = pt(fairV, R - 17), [fx2, fy2] = pt(fairV, R + 17), [mx, my] = pt(claimed, R + 24), [mx2, my2] = pt(claimed, R + 10);
+    const ticks = [0, 0.25, 0.5, 0.75, 1].map(f => { const v = max * f, [a, b] = pt(v, R + 8), [c, d] = pt(v, R + 17); return `<path d="M${a.toFixed(1)} ${b.toFixed(1)} L${c.toFixed(1)} ${d.toFixed(1)}" stroke="#8A8376" stroke-width="2"/>`; }).join('');
+    return `<svg class="gauge" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(t('gauge_aria', { real: inr(real), app: inr(claimed), fair: inr(fair) }))}">
+      ${arc(0, fairV, R, '#E4572E', 16)}${arc(fairV, max, R, '#3DDC97', 16)}${ticks}
+      <path d="M${fx1.toFixed(1)} ${fy1.toFixed(1)} L${fx2.toFixed(1)} ${fy2.toFixed(1)}" stroke="#FF8A6B" stroke-width="4"/>
+      <path d="M${mx2.toFixed(1)} ${my2.toFixed(1)} L${(mx + (cx - mx) * 0.06).toFixed(1)} ${(my + (cy - my) * 0.06).toFixed(1)}" stroke="#FFC400" stroke-width="7" stroke-linecap="round"/>
+      <path d="M${cx} ${cy} L${nx.toFixed(1)} ${ny.toFixed(1)}" stroke="#fff" stroke-width="5" stroke-linecap="round"/><circle cx="${cx}" cy="${cy}" r="9" fill="#fff"/><circle cx="${cx}" cy="${cy}" r="4" fill="#17150F"/>
+      <text x="${cx}" y="${cy + 42}" text-anchor="middle" class="g-big">${esc(inr(real))}</text><text x="${cx}" y="${cy + 62}" text-anchor="middle" class="g-sm">${esc(t('gauge_unit'))}</text>
+    </svg>
+    <div class="g-leg"><span><i style="background:#fff"></i>${esc(t('gauge_real'))}</span><span><i style="background:#FFC400"></i>${esc(t('gauge_apps', { v: inr(claimed) }))}</span><span><i style="background:#E4572E"></i>${esc(t('gauge_fair', { v: inr(fair) }))}</span></div>`;
   }
   function renderWelcome(v) {
     v.innerHTML = `<div class="welcome stack"><div><h1 class="h2" style="font-size:32px">${esc(t('au_welcome', { name: S.user.name }))}</h1><p class="muted" style="margin-top:6px">${t('au_welcome_p')}</p></div>
@@ -234,6 +268,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
           <section class="kept-card"><div class="kept-lbl">${t('you_kept')} · ${esc(label)}</div>
             <div class="kept-n num ${r.net < 0 ? 'neg' : ''}">${inr(r.net)}</div>
             <p class="kept-sum">${esc(t('h_sum', { app: inr(r.appShown), kept: inr(r.net), real: inr(r.perHr), appHr: inr(r.appPerHr) }))}</p>
+            <div class="gaugebox">${gaugeSVG(Math.max(0, r.perHr), r.appPerHr, S.profile.minWage)}</div>
             <div class="kbar" aria-hidden="true"><i style="width:${keptPct}%"></i></div>
             <div class="kbar-l"><span>${esc(t('kept_pct', { p: keptPct }))}</span><span>${Math.round(r.hours * 10) / 10} ${t('hours')} · ${rd(r.orders)} ${t('orders_n')}</span></div></section>
           ${nextStepHTML(rep, plan)}
@@ -354,6 +389,18 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     }).join('')}</tr>`).join('');
     return `<div class="scroll"><table class="hm">${head}${rows}</table></div>`;
   }
+  function weekdayHeatHTML(rep) {
+    const dps = T.DAYPARTS, order = [1, 2, 3, 4, 5, 6, 0], mw = rep.profile.minWage;
+    const wdName = wd => new Date(Date.UTC(2024, 0, 7 + wd)).toLocaleDateString(LOC[S.lang], { weekday: 'short', timeZone: 'UTC' });   // 2024-01-07 was a Sunday
+    const head = `<tr><th></th>${dps.map(d => `<th>${esc(t('dp_' + d))}</th>`).join('')}</tr>`;
+    const rows = order.map(wd => `<tr><td class="zn">${esc(wdName(wd))}</td>${dps.map(d => {
+      const c = rep.weekdayDaypart.find(x => x.wd === wd && x.daypart === d);
+      if (!c || c.hours < 1.5) return '<td class="na">–</td>';
+      return `<td style="background:${heatColor(c.perHr, mw)}">${inr(c.perHr)}<small>${c.days} ${t('hist_days').toLowerCase()}</small></td>`;
+    }).join('')}</tr>`).join('');
+    const b = rep.bestSlot;
+    return `${b ? `<p class="best-slot">${esc(t('hw_best', { day: wdName(b.wd), part: t('dp_' + b.daypart), r: inr(b.perHr), n: b.days }))}</p>` : `<p class="note">${esc(t('hw_low'))}</p>`}<div class="scroll"><table class="hm">${head}${rows}</table></div>`;
+  }
   function weekdaySVG(rep) {
     const order = [1, 2, 3, 4, 5, 6, 0], W = 520, H = 170, Tp = 24, B = 24, bw = W / 7, vals = order.map(w => rep.byWeekday[w]);
     const live = vals.filter(x => x.days); if (!live.length) return '';
@@ -426,7 +473,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
   function insWhen(b, rep) {
     if (rep.dataQuality.level === 'low') { b.innerHTML = `<p class="dq low">${t('a_lowdata', { days: rep.dataQuality.days, orders: rep.dataQuality.orders })}</p>`; return; }
     const zones = rep.byZone.map(z => z.key), maxP = Math.max(...rep.byPlatform.map(p => Math.max(p.appPerHr, p.perHr)), 1);
-    b.innerHTML = `<div class="cols two">
+    b.innerHTML = `<section class="card" style="margin-bottom:20px"><h3 class="h3">${t('hw_h')}</h3>${weekdayHeatHTML(rep)}</section><div class="cols two">
         <section class="card"><h3 class="h3">${t('when_h')}</h3>${hourSVG(rep)}<div class="legend"><span><i style="background:var(--lost)"></i>&lt; 60%</span><span><i style="background:#C8912A"></i>&lt; ${t('minwage').split('(')[0].trim()}</span><span><i style="background:var(--kept)"></i>≥</span></div></section>
         <section class="card"><h3 class="h3">${t('per_hr_real')}</h3>${weekdaySVG(rep)}</section></div>
       <section class="card sec" style="margin-top:20px"><h3 class="h3">${t('where_h')}</h3>${heatmapHTML(rep.zoneDaypart, zones, null, rep.profile.minWage)}</section>
@@ -724,13 +771,15 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     const have = new Set(S.sessions.map(x => x.id)), haveS = new Set(S.shifts.map(x => x.id));
     (snap.sessions || []).forEach(x => { if (!have.has(x.id)) S.sessions.push(x); });
     (snap.shifts || []).forEach(x => { if (!haveS.has(x.id)) S.shifts.push(x); });
+    const haveE = new Set((S.expenses || []).map(x => x.id)); S.expenses = S.expenses || [];
+    (snap.expenses || []).forEach(x => { if (!haveE.has(x.id)) S.expenses.push(x); });
     S.hashes = Array.from(new Set(S.hashes.concat(snap.hashes || [])));
   }
   async function pullMerge() {      // another device saved first: keep both sets of records
     const j = await api('GET', 'api/me'); const mine = pickSync();
     adoptServer(j.data); unionInto(mine);                       // records: keep both devices' entries
     ['profile', 'goal', 'lang', 'city', 'big', 'vehicleOk', 'tourDone', 'shared', 'demo', 'rider', 'reader', 'lastBatch'].forEach(k => { if (mine[k] !== undefined) S[k] = mine[k]; });   // settings: this device's latest choice wins
-    S.ver = j.version; recompute();
+    S.ver = j.version; if (j.ai) ui.aiUse = j.ai; recompute();
   }
   function adoptServer(d) {
     d = d || {};
@@ -740,7 +789,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     if (!S.rider || typeof S.rider !== 'object') S.rider = { name: '', phone4: '' };
   }
   function freshState() {
-    Object.assign(S, { sessions: [], profile: T.defaultProfile('petrol'), hashes: [], reader: null, lastBatch: [], shared: false, rider: { name: '', phone4: '' }, demo: false, goal: 800, vehicleOk: false, tourDone: false, shifts: [], shift: null,
+    Object.assign(S, { sessions: [], expenses: [], fills: null, profile: T.defaultProfile('petrol'), hashes: [], reader: null, lastBatch: [], shared: false, rider: { name: '', phone4: '' }, demo: false, goal: 800, vehicleOk: false, tourDone: false, shifts: [], shift: null,
       city: 'Hyderabad', report: null, meas: null, day: null, oc: null, pending: null, simHour: null, fairTarget: null, fullCalc: false, advAll: false, insSeg: 'coach', citySeg: 'map', planSeg: 'order' });
     resetWi(); ui.chat = []; ui.thumbs = null; ui.msg = null; ui.open = new Set();
   }
@@ -780,6 +829,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
   async function boot() {
     try {
       const j = await api('GET', 'api/me');
+      if (j.ai) ui.aiUse = j.ai;
       afterAuth(j.user, j.data, j.version, { silent: true });
     } catch (e) {
       if (e.status === 401) { try { localStorage.removeItem('truewage.last'); } catch (x) { /* ignore */ } return; }
@@ -817,6 +867,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
       go.disabled = true;
       try {
         const j = reg ? await api('POST', 'api/auth/register', { name, phone, password: pw, lang: S.lang }) : await api('POST', 'api/auth/login', { phone, password: pw });
+        if (j.ai) ui.aiUse = j.ai;
         afterAuth(j.user, j.data || {}, j.version || 0);
       } catch (e2) { err.textContent = authErr(e2); err.hidden = false; go.disabled = false; }
     };
@@ -825,16 +876,17 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     if (!S.user) {
       b.innerHTML = `<div class="card"><div class="h3">${t('au_guest_h')}</div><p class="note" style="margin-top:4px">${t('au_guest_note')}</p>
         <div class="menu"><button class="btn block" id="ac-reg">${t('au_register')}</button><button class="btn alt block" id="ac-login">${t('au_login')}</button></div></div>
-        <div class="menu" style="margin-top:12px"><button class="btn alt block" id="ac-set">${t('set_h')}</button></div>`;
+        <div class="menu" style="margin-top:12px"><button class="btn alt block" id="ac-hist">${t('hist_h')}</button><button class="btn alt block" id="ac-set">${t('set_h')}</button></div>`;
+      $('#ac-hist', b).onclick = () => openSheet('history');
       $('#ac-reg', b).onclick = () => { S.authMode = 'register'; openSheet('auth'); }; $('#ac-login', b).onclick = () => { S.authMode = 'login'; openSheet('auth'); };
       $('#ac-set', b).onclick = () => openSheet('data'); return;
     }
     b.innerHTML = `<div class="card acct"><span class="avatar big" aria-hidden="true">${esc(S.user.name.trim().charAt(0).toUpperCase())}</span><div><div class="h3">${esc(S.user.name)}</div><div class="note">XXXXXX${esc(S.user.phone4)}</div><div class="note" id="sync-state"></div></div></div>
-      <div class="menu" style="margin-top:12px"><button class="btn alt block" id="ac-set">${t('set_h')}</button><button class="btn alt block" id="ac-pw">${t('au_pw_change')}</button><button class="btn alt block" id="ac-out">${t('au_logout')}</button></div>
+      <div class="menu" style="margin-top:12px"><button class="btn alt block" id="ac-hist">${t('hist_h')}</button><button class="btn alt block" id="ac-exp">${t('exp_h')}</button><button class="btn alt block" id="ac-set">${t('set_h')}</button><button class="btn alt block" id="ac-pw">${t('au_pw_change')}</button><button class="btn alt block" id="ac-out">${t('au_logout')}</button></div>
       <div id="ac-form"></div>
       <div class="menu" style="margin-top:22px"><button class="btn alt block danger" id="ac-del">${t('au_delete')}</button></div>`;
     updateSyncUI();
-    $('#ac-set', b).onclick = () => openSheet('data'); $('#ac-out', b).onclick = doLogout;
+    $('#ac-set', b).onclick = () => openSheet('data'); $('#ac-out', b).onclick = doLogout; $('#ac-hist', b).onclick = () => openSheet('history'); $('#ac-exp', b).onclick = () => openSheet('expenses');
     const form = $('#ac-form', b);
     $('#ac-pw', b).onclick = () => {
       form.innerHTML = `<form class="stack card" style="margin-top:12px" id="pwform"><div class="field"><label for="pw-old">${t('au_pw_old')}</label><input id="pw-old" type="password" autocomplete="current-password"></div>
@@ -868,7 +920,13 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     try {
       trk.watch = navigator.geolocation.watchPosition(pos => {
         if (!S.shift) return; const c = pos.coords;
-        S.shift = Object.assign(T.addFix(S.shift, { lat: c.latitude, lon: c.longitude, acc: c.accuracy, t: pos.timestamp || Date.now() }), { gps: 'on' }); save(); tick();
+        S.shift = Object.assign(T.addFix(S.shift, { lat: c.latitude, lon: c.longitude, acc: c.accuracy, t: pos.timestamp || Date.now() }), { gps: 'on' });
+        if (window.TWPlaces && c.accuracy <= 200) { // minutes per named area (never the route): used to name the area of screenshots that show none
+          const now = pos.timestamp || Date.now(), pl = TWPlaces.nearest(c.latitude, c.longitude);
+          if (S.shift.zt && pl) { const dt = Math.min(5, (now - S.shift.zt) / 60000); S.shift.zoneMin = S.shift.zoneMin || {}; S.shift.zoneMin[pl.zone] = (S.shift.zoneMin[pl.zone] || 0) + dt; }
+          S.shift.zt = now;
+        }
+        save(); tick();
       }, () => { if (S.shift) { S.shift.gps = 'off'; save(); tick(); } }, { enableHighAccuracy: true, maximumAge: 10000, timeout: 30000 });
     } catch (e) { S.shift.gps = 'off'; }
     try { if (navigator.wakeLock) navigator.wakeLock.request('screen').then(w => { trk.wake = w; }).catch(() => { /* optional */ }); } catch (e) { /* optional */ }
@@ -887,7 +945,9 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     const sh = S.shift, end = Date.now(); stopWatch(); S.shift = null;
     const onlineMin = Math.max(1, Math.round((end - sh.start) / 60000)), km = Math.round((sh.km || 0) * 100) / 100;
     if (end - sh.start < 3 * 60000 && km < 0.2) { save(); toast(t('sh_short')); rerender(); return; }
-    S.shifts.push({ id: 's' + sh.start, date: localDate(sh.start), platform: sh.platform, startTs: sh.start, endTs: end, onlineMin, km, gps: sh.gps === 'on' ? 'on' : 'off', source: 'tracked' });
+    const zoneMin = {}; Object.entries(sh.zoneMin || {}).forEach(([k, v]) => { zoneMin[k] = Math.round(v * 10) / 10; });
+    const dom = window.TWPlaces ? TWPlaces.dominant(zoneMin) : null;
+    S.shifts.push({ id: 's' + sh.start, date: localDate(sh.start), platform: sh.platform, startTs: sh.start, endTs: end, onlineMin, km, gps: sh.gps === 'on' ? 'on' : 'off', source: 'tracked', zone: dom ? dom.zone : null, zoneMin });
     S.shifts = S.shifts.slice(-400); recompute(); toast(t('sh_saved', { h: hm(onlineMin), km: km.toFixed(1) })); rerender();
   }
   function shiftCardHTML(rep) {
@@ -905,7 +965,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     const m = S.meas;
     return `<section class="card shift"><h3 class="h3">${t('sh_h')}</h3><p class="note" style="margin:4px 0 12px">${t('sh_hint')}</p>
       <div class="rows" style="align-items:end"><div class="field" style="flex:1;min-width:150px"><label for="shift-plat">${t('sh_platform')}</label><select id="shift-plat">${plats.map(x => `<option ${x === last ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select></div>
-        <button class="btn lg" id="shift-start">${t('sh_start')}</button></div>
+        <button class="btn lg" id="shift-start">${ic('bike')}${t('sh_start')}</button></div>
       ${all.length ? `<p class="note" style="margin-top:12px">${esc(t('sh_summary', { n: all.length, h: Math.round(hrs * 10) / 10, km: Math.round(kms) }))}${S.demo ? ' · ' + esc(t('pr_label').split(':')[0]) : ''}</p>` : ''}
       ${rep ? (m && m.reliable ? `<p class="note" style="margin-top:6px"><span class="pill">${t('sh_badge')}</span> ${esc(t('sh_measured', { f: m.factor.toFixed(2), n: m.pairs }))}</p>` : `<p class="note" style="margin-top:6px">${esc(t('sh_assumed', { f: S.profile.deadKm }))}</p>`) : ''}
       ${un ? `<p class="note warn-n" style="margin-top:8px">${esc(t('sh_unmatched', { date: dLabel(un.date, { day: 'numeric', month: 'short' }), h: hm(un.onlineMin), km: un.km.toFixed(1) }))}</p><button class="btn sm alt" id="shift-add" style="margin-top:6px">${t('add_shots')}</button>` : ''}</section>`;
@@ -1007,24 +1067,78 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
   const syncFab = () => { const f = $('#fab'); if (f) f.hidden = !S.report || !!S.sheet; };
   function renderSheet() {
     const b = $('#sheet-body');
-    $('#sheet-t').textContent = S.sheet === 'costs' ? t('costs_h') : S.sheet === 'data' ? t('set_h') : S.sheet === 'ask' ? t('ask_h') : S.sheet === 'auth' ? t(S.authMode === 'register' ? 'au_register' : 'au_login') : S.sheet === 'account' ? t('au_account') : t('add_shots');
-    if (S.sheet === 'costs') costsSheet(b); else if (S.sheet === 'data') dataSheet(b); else if (S.sheet === 'ask') askSheet(b); else if (S.sheet === 'auth') authSheet(b); else if (S.sheet === 'account') accountSheet(b); else importSheet(b);
+    $('#sheet-t').textContent = S.sheet === 'costs' ? t('costs_h') : S.sheet === 'data' ? t('set_h') : S.sheet === 'ask' ? t('ask_h') : S.sheet === 'auth' ? t(S.authMode === 'register' ? 'au_register' : 'au_login') : S.sheet === 'account' ? t('au_account') : S.sheet === 'expenses' ? t('exp_h') : S.sheet === 'history' ? t('hist_h') : t('add_shots');
+    if (S.sheet === 'costs') costsSheet(b); else if (S.sheet === 'data') dataSheet(b); else if (S.sheet === 'ask') askSheet(b); else if (S.sheet === 'auth') authSheet(b); else if (S.sheet === 'account') accountSheet(b); else if (S.sheet === 'expenses') expensesSheet(b); else if (S.sheet === 'history') historySheet(b); else importSheet(b);
   }
   function costsSheet(b) {
     b.innerHTML = `<div class="grid2">${costsHTML()}</div><p class="note" style="margin-top:10px">${t('cal_help')}</p>${S.meas && S.meas.reliable ? `<p class="note" style="margin-top:8px"><span class="pill">${t('sh_badge')}</span> ${esc(t('sh_measured', { f: S.meas.factor.toFixed(2), n: S.meas.pairs }))}</p>` : ''}<div class="center"><button class="btn lg" id="c-done">${t('done')}</button></div>`;
     bindCosts(b); $('#c-done', b).onclick = closeSheet;
   }
+  /* ---------- expenses & fuel ---------- */
+  const EXP_CATS = ['fuel', 'parking_toll', 'fine', 'repair', 'other'];
+  function expensesSheet(b) {
+    const today = localDate(Date.now()), fills = S.fills || T.fuelFromFills(S.expenses), rep = S.report;
+    const list = (S.expenses || []).slice().sort((a, c) => a.date < c.date ? 1 : a.date > c.date ? -1 : 0).slice(0, 60);
+    const status = fills.perKm && fills.reliable ? `<div class="status ok">${esc(t('exp_fuel_real', { p: '₹' + fills.perKm.toFixed(2), n: fills.pairs }))}${fills.mileage ? ' ' + esc(t('exp_mileage', { m: fills.mileage.toFixed(1) })) : ''}</div>`
+      : `<div class="status">${esc(t('exp_fuel_need'))}</div>`;
+    const counted = rep && rep.extras && rep.extras.n ? `<p class="note">${esc(t('exp_counted', { n: rep.extras.n, x: inr(rep.extras.extras) }))}${rep.extras.hasRepair ? ' ' + esc(t('exp_repair_note')) : ''}</p>` : '';
+    b.innerHTML = `${status}${counted}
+      <form id="exp-form" class="card stack" style="margin-top:12px" novalidate>
+        <div class="grid2"><div class="field"><label for="ex-cat">${t('exp_cat')}</label><select id="ex-cat">${EXP_CATS.map(c => `<option value="${c}">${t('exp_c_' + c)}</option>`).join('')}</select></div>
+          <div class="field"><label for="ex-amt">${t('exp_amount')}</label><input id="ex-amt" type="number" inputmode="decimal" min="1" step="any"></div></div>
+        <div class="grid2"><div class="field"><label for="ex-date">${t('exp_date')}</label><input id="ex-date" type="date" value="${today}" max="${today}"></div>
+          <div class="field"><label for="ex-note">${t('exp_note')}</label><input id="ex-note" type="text" maxlength="80"></div></div>
+        <div class="grid2" id="ex-fuel"><div class="field"><label for="ex-l">${t('exp_litres')}</label><input id="ex-l" type="number" inputmode="decimal" min="0" step="any"></div>
+          <div class="field"><label for="ex-o">${t('exp_odo')}</label><input id="ex-o" type="number" inputmode="numeric" min="0" step="1"></div></div>
+        <div class="status err" id="ex-err" hidden></div>
+        <button class="btn lg block" type="submit">${t('exp_add')}</button></form>
+      <h3 class="h3" style="margin-top:18px">${t('exp_list')}</h3>
+      ${list.length ? `<div class="exp-list">${list.map(e => `<div class="exp-row"><div><b>${esc(t('exp_c_' + e.category))}</b><small>${esc(dLabel(e.date, { day: 'numeric', month: 'short' }))}${e.odo ? ' · ' + Math.round(e.odo) + ' km' : ''}${e.litres ? ' · ' + e.litres + ' L' : ''}${e.note ? ' · ' + esc(e.note) : ''}</small></div><span class="num">${inr(e.amount)}</span><button class="link" data-del="${esc(e.id)}" aria-label="${esc(t('exp_del'))}">✕</button></div>`).join('')}</div>` : `<p class="muted">${t('exp_none')}</p>`}`;
+    const cat = $('#ex-cat', b), fuel = $('#ex-fuel', b), sync = () => { fuel.hidden = cat.value !== 'fuel'; }; cat.onchange = sync; sync();
+    $('#exp-form', b).onsubmit = e => {
+      e.preventDefault(); const er = $('#ex-err', b), amt = parseFloat($('#ex-amt', b).value), date = $('#ex-date', b).value, odo = parseFloat($('#ex-o', b).value) || 0, lit = parseFloat($('#ex-l', b).value) || 0;
+      if (!(amt > 0 && amt <= 500000) || !/^\d{4}-\d{2}-\d{2}$/.test(date) || date > today) { er.textContent = t('exp_bad'); er.hidden = false; return; }
+      if (cat.value === 'fuel' && odo > 0 && (S.expenses || []).some(x => x.category === 'fuel' && x.odo > 0 && x.odo === odo)) { er.textContent = t('exp_dup_odo'); er.hidden = false; return; }
+      S.expenses = S.expenses || [];
+      S.expenses.push({ id: 'e' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), date, category: cat.value, amount: amt, litres: cat.value === 'fuel' ? lit : 0, odo: cat.value === 'fuel' ? odo : 0, note: $('#ex-note', b).value.trim().slice(0, 80) });
+      recompute(); scheduleSync(); toast(t('exp_saved')); rerender(); renderSheet();
+    };
+    $$('[data-del]', b).forEach(x => x.onclick = () => { S.expenses = S.expenses.filter(e => e.id !== x.dataset.del); recompute(); scheduleSync(); rerender(); renderSheet(); });
+  }
+
+  /* ---------- history (stored in the rider's database) ---------- */
+  async function historySheet(b) {
+    const n = S.sessions.reduce((a, x) => a + x.orders.length, 0), days = new Set(S.sessions.map(x => x.date)).size;
+    if (!S.user) {
+      b.innerHTML = `<p class="muted">${esc(t('hist_local', { d: days, o: n }))}</p><div class="status">${esc(t('hist_guest'))}</div><div class="menu"><button class="btn block" id="h-reg">${t('au_register')}</button></div>`;
+      $('#h-reg', b).onclick = () => { S.authMode = 'register'; openSheet('auth'); }; return;
+    }
+    b.innerHTML = `<div class="reading"><div class="spin"></div><span>${t('reading')}</span></div>`;
+    let h; try { h = await api('GET', 'api/me/history'); } catch (e) { b.innerHTML = `<div class="status err">${esc(t('au_e_net'))}</div>`; return; }
+    if (S.sheet !== 'history') return;
+    const st = h.stats, fdate = ts => new Date(ts * 1000).toLocaleString(LOC[S.lang], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+    const evName = k => ({ register: t('ev_register'), login: t('ev_login'), export: t('ev_export') }[k] || k);
+    const sec = (title, rows) => `<section class="card" style="margin-top:12px"><h3 class="h3">${title}</h3>${rows.length ? `<div class="hist">${rows.join('')}</div>` : `<p class="muted">${t('hist_empty')}</p>`}</section>`;
+    b.innerHTML = `<div class="stats"><div><div class="k">${t('hist_days')}</div><div class="v num">${st.days}</div></div><div><div class="k">${t('orders_n')}</div><div class="v num">${st.orders}</div></div><div><div class="k">${t('hist_gross')}</div><div class="v num">${inr(st.gross)}</div></div><div><div class="k">km</div><div class="v num">${Math.round(st.km)}</div></div></div>
+      <p class="note" style="margin-top:6px">${st.first ? esc(dLabel(st.first, { day: 'numeric', month: 'short', year: 'numeric' })) + ' – ' + esc(dLabel(st.last, { day: 'numeric', month: 'short', year: 'numeric' })) : ''}</p>
+      <a class="btn alt block" style="margin-top:10px" href="api/me/export.csv" download>${ic('download')}${t('hist_export')}</a>
+      ${sec(t('hist_zones'), h.topZones.map(z => `<div class="hrow"><span>${esc(z.zone)}</span><small>${z.orders} ${t('orders_n')}</small><b class="num">${inr(z.gross)}</b></div>`))}
+      ${sec(t('hist_imports'), h.imports.map(i => `<div class="hrow"><span>${esc(fdate(i.ts))}</span><small>${esc(t('imp_line', { n: i.images, c: i.cached, s: i.sent, o: i.orders }))}</small></div>`))}
+      ${sec(t('hist_statements'), h.statements.map(x => `<div class="hrow"><span>${esc(x.sid)}</span><small>${esc(fdate(x.ts))}</small><b class="num">${inr(x.monthly_take_home)}</b></div>`))}
+      ${sec(t('hist_activity'), h.events.slice(0, 12).map(e => `<div class="hrow"><span>${esc(evName(e.kind))}</span><small>${esc(fdate(e.ts))}</small></div>`))}`;
+  }
+
   function dataSheet(b) {
     const n = S.sessions.reduce((a, s) => a + s.orders.length, 0);
     b.innerHTML = `<p class="muted">${S.sessions.length ? t('imp_records', { s: S.sessions.length, n }) : t('imp_none')}</p>
-      <div class="menu"><button class="btn alt block" id="d-costs">${t('costs_h')}</button>
+      <div class="menu"><button class="btn alt block" id="d-costs">${t('costs_h')}</button><button class="btn alt block" id="d-expn">${t('exp_h')}</button><button class="btn alt block" id="d-hist">${t('hist_h')}</button>
         <button class="btn alt block" id="d-exp" ${S.sessions.length ? '' : 'disabled'}>${ic('download')}${t('data_export')}</button>
         <button class="btn alt block" id="d-imp">${ic('upload')}${t('data_import')}</button>
         <button class="btn alt block" id="d-del" ${S.sessions.length ? '' : 'disabled'}>${t('data_delete')}</button>
         <button class="btn alt block" id="d-big" aria-pressed="${!!S.big}">${t('big_text')}: ${S.big ? 'ON' : 'OFF'}</button></div>
       <h3 class="h3" style="margin-top:18px">${t('install_h')}</h3><p class="note">${t('install_p')}</p>
       <p class="note" style="margin-top:16px">${t('pdf_disclaimer')}</p>`;
-    $('#d-costs', b).onclick = () => openSheet('costs'); $('#d-exp', b).onclick = exportData; $('#d-imp', b).onclick = () => $('#backup-file').click(); $('#d-del', b).onclick = deleteAll;
+    $('#d-costs', b).onclick = () => openSheet('costs'); $('#d-expn', b).onclick = () => openSheet('expenses'); $('#d-hist', b).onclick = () => openSheet('history'); $('#d-exp', b).onclick = exportData; $('#d-imp', b).onclick = () => $('#backup-file').click(); $('#d-del', b).onclick = deleteAll;
     $('#d-big', b).onclick = () => { S.big = !S.big; save(); applyStatic(); renderSheet(); };
   }
   function importSheet(b) {
@@ -1032,7 +1146,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     if (ui.busy) { b.innerHTML = `<div class="reading"><div class="spin"></div><span>${t('reading')}</span><div class="bar2"><i id="read-bar" style="width:${ui.progress || 6}%"></i></div></div>${thumbsHTML()}`; return; }
     b.innerHTML = `<p class="muted" style="margin-bottom:14px">${t('imp_how')}</p>
       <div class="drop" id="drop">${ic('image').replace('class="i"', 'class="i" style="width:40px;height:40px"')}<button class="btn lg" id="pick">${ic('upload')}${t('imp_pick')}</button><p>${t('drop_s')}</p></div>
-      ${ui.msg ? `<div class="status ${ui.msg.err ? 'err' : ''}">${esc(ui.msg.text)}</div>` : ''}${aiNoteHTML()}${offerHTML()}${thumbsHTML()}
+      ${ui.msg ? `<div class="status ${ui.msg.err ? 'err' : ''}">${esc(ui.msg.text)}</div>` : ''}${aiMeterHTML()}${aiNoteHTML()}${offerHTML()}${thumbsHTML()}
       <div class="center"><button class="link" id="btn-samples">${t('btn_samples')}</button></div>`;
     const drop = $('#drop', b);
     $('#pick', b).onclick = () => $('#file').click();
@@ -1041,6 +1155,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     drop.addEventListener('drop', e => handleFiles(e.dataTransfer.files));
     $('#btn-samples', b).onclick = trySamples; bindOffer(b);
   }
+  const aiMeterHTML = () => ui.aiUse && ui.aiUse.imageLimit ? `<p class="note ai-meter" id="ai-meter">${esc(t('ai_left', { n: Math.max(0, ui.aiUse.imageLimit - ui.aiUse.imagesToday), m: ui.aiUse.imageLimit }))}</p>` : '';
   const offerHTML = () => !ui.offer ? '' : `<div class="card offer"><div class="eyebrow">${esc(t('offer_found'))}</div><p class="h3 num">${inr(ui.offer.pay)} · ${Math.round(ui.offer.km * 10) / 10} km</p><p class="note">${esc(t('offer_note'))}</p><button class="btn lg block" id="go-offer">${esc(t('offer_check'))}</button></div>`;
   const aiNoteHTML = () => ui.aiNote ? `<div class="status ${ui.aiNote === t('ai_fallback') ? 'err' : ''}">${esc(ui.aiNote)}</div>` : '';
   const bindOffer = b => { const g = $('#go-offer', b); if (g) g.onclick = () => { S.oc = { pay: ui.offer.pay, km: ui.offer.km }; ui.offer = null; closeSheet(); setTab('check'); }; };
@@ -1167,6 +1282,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     try {
       const res = await R.readScreenshots(files, setProgress, S.hashes);
       ui.thumbs = { urls: res.dataUrls, dl: false }; ui.busy = false;
+      if (res.usage) ui.aiUse = res.usage;
       ui.offer = (res.offers && res.offers[0]) || null; ui.aiNote = res.fallback ? t('ai_fallback') : (res.notes && res.notes[0]) || null;
       if (!res.sessions.length && ui.offer) { ui.msg = null; renderSheet(); return; }
       if (!res.sessions.length) {

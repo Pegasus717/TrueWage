@@ -207,3 +207,91 @@ class T(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    # ---- history, export, quota over HTTP ----
+    def test_history_and_csv_endpoints_are_private_and_safe(self):
+        anon = Client(self.port)
+        self.assertEqual(anon.call("GET", "/api/me/history")[0], 401); self.assertEqual(anon.call("GET", "/api/me/export.csv")[0], 401)
+        c, phone, pw, j, r = self.signup("Hist")
+        s, me, _ = c.call("GET", "/api/me"); self.assertEqual(me["ai"]["imagesToday"], 0); self.assertGreater(me["ai"]["imageLimit"], 0)
+        c.call("PUT", "/api/me/data", {"baseVersion": me["version"], "data": {"sessions": [SESSION], "expenses": [{"id": "e1", "date": "2026-11-13", "category": "fuel", "amount": 250}]}})
+        s, h, _ = c.call("GET", "/api/me/history"); self.assertEqual(s, 200); self.assertEqual(h["stats"]["orders"], 1); self.assertEqual(h["topZones"][0]["zone"], "Madhapur")
+        s, raw, resp = c.call("GET", "/api/me/export.csv")
+        self.assertEqual(s, 200); self.assertIn("attachment", resp.getheader("Content-Disposition")); self.assertIn(b"order,2026-11-13,Zomato", raw); self.assertIn(b"expense,2026-11-13", raw)
+        other, *_ = self.signup("Other")
+        s, h2, _ = other.call("GET", "/api/me/history"); self.assertEqual(h2["stats"]["orders"], 0)         # nobody sees another rider's history
+        self.assertIn("export", [e["kind"] for e in c.call("GET", "/api/me/history")[1]["events"]])
+
+    def test_user_quota_blocks_extract_before_any_upstream_call(self):
+        old_key, old_q = server.API_KEY, accounts.AI_USER_DAILY
+        server.API_KEY = "k"; accounts.AI_USER_DAILY = 0
+        try:
+            c, *_ = self.signup("Quota")
+            import base64, struct, zlib
+            def ch(t, d): return struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xffffffff)
+            png = bytes([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) + ch(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)) + ch(b"IDAT", zlib.compress(bytes([0, 7, 8, 9]))) + ch(b"IEND", b"")
+            s, j, _ = c.call("POST", "/api/extract", {"images": ["data:image/png;base64," + base64.b64encode(png).decode()]})
+            self.assertEqual((s, j["error"]), (429, "ai_user_quota"))
+        finally:
+            server.API_KEY, accounts.AI_USER_DAILY = old_key, old_q
+
+
+class HistoryTests(unittest.TestCase):
+    """Relational mirror, history, CSV export and per-rider AI quota."""
+    @classmethod
+    def setUpClass(cls):
+        import accounts
+        cls.A = accounts
+        cls.uid = accounts.register("History Rider", "9000011111", "password-123", "en")[0]["id"]
+
+    def doc(self, extra=None):
+        d = {"sessions": [{"id": "s1", "date": "2026-11-13", "platform": "Rapido", "zone": None, "onlineMin": 300, "bonus": 20, "source": "ai",
+                           "orders": [{"hour": 10.5, "zone": "Uppal", "km": 3.0, "pay": 50, "incentive": 5, "deduction": 2, "durMin": 20},
+                                      {"hour": 12, "zone": "=cmd|' /C calc'!A0", "km": 2.0, "pay": 40, "incentive": 0, "deduction": 0, "durMin": 15}]}],
+             "expenses": [{"id": "e1", "date": "2026-11-13", "category": "fuel", "amount": 300, "litres": 3, "odo": 1000, "note": "+SUM(1)"}, {"id": "e2", "date": "2026-11-13", "category": "bogus", "amount": 0}],
+             "shifts": [{"id": "sh1", "date": "2026-11-13", "platform": "Rapido", "startTs": 1, "endTs": 2, "onlineMin": 300, "km": 40, "gps": "on", "zone": "Uppal", "zoneMin": {"Uppal": 200}}]}
+        d.update(extra or {}); return d
+
+    def test_mirror_history_and_export(self):
+        A = self.A; v = A.put_data(self.uid, self.doc(), 0)
+        with A._conn() as c:
+            self.assertEqual(c.execute("SELECT COUNT(*) FROM orders WHERE user_id=?", (self.uid,)).fetchone()[0], 2)
+            ws = c.execute("SELECT * FROM work_sessions WHERE user_id=?", (self.uid,)).fetchone()
+            self.assertEqual((ws["n_orders"], ws["pay"], ws["incentive"], ws["km"]), (2, 90, 5, 5))
+            self.assertEqual(c.execute("SELECT COUNT(*) FROM expenses WHERE user_id=?", (self.uid,)).fetchone()[0], 1)   # the zero-amount junk row was dropped
+            self.assertEqual(c.execute("SELECT zone FROM shifts WHERE user_id=?", (self.uid,)).fetchone()[0], "Uppal")
+        h = A.history(self.uid)
+        self.assertEqual((h["stats"]["orders"], h["stats"]["days"]), (2, 1)); self.assertEqual(h["topZones"][0]["zone"], "Uppal")
+        kinds = [e["kind"] for e in h["events"]]; self.assertIn("register", kinds)
+        out = A.export_csv(self.uid)
+        self.assertIn("order,2026-11-13,Rapido,10.5,Uppal", out); self.assertNotIn(",=cmd", out); self.assertIn("'=cmd", out)   # formula injection neutralised
+        self.assertIn("'+SUM(1)", out)
+        # an unchanged part is not rewritten, a changed one is
+        d2 = self.doc(); d2["sessions"][0]["orders"].pop()
+        v2 = A.put_data(self.uid, d2, v)
+        with A._conn() as c:
+            self.assertEqual(c.execute("SELECT COUNT(*) FROM orders WHERE user_id=?", (self.uid,)).fetchone()[0], 1)
+
+    def test_import_and_statement_logs_and_cascade(self):
+        A = self.A
+        A.log_import(self.uid, "ai", 5, 2, 3, 2, 17, ["claude-haiku-5-5"]); A.log_statement(self.uid, "TW-ABC", "2026-10-01", "2026-11-13", 21000)
+        h = A.history(self.uid)
+        self.assertEqual(h["imports"][0]["cached"], 2); self.assertEqual(h["statements"][0]["monthly_take_home"], 21000)
+        uid2 = A.register("Other", "9000022222", "password-123", "en")[0]["id"]
+        A.put_data(uid2, self.doc(), 0)
+        A.delete_account(uid2, "password-123")
+        with A._conn() as c:
+            for t in ("orders", "work_sessions", "expenses", "shifts", "imports", "events", "ai_usage"):
+                self.assertEqual(c.execute("SELECT COUNT(*) FROM %s WHERE user_id=?" % t, (uid2,)).fetchone()[0], 0, t)
+
+    def test_ai_quota_is_per_rider_and_hard(self):
+        A = self.A; old = A.AI_USER_DAILY
+        try:
+            A.AI_USER_DAILY = 5
+            uid = A.register("Quota", "9000033333", "password-123", "en")[0]["id"]
+            A.ai_spend(uid, images=3); A.ai_spend(uid, images=2)
+            with self.assertRaises(A.AuthError) as cm: A.ai_spend(uid, images=1)
+            self.assertEqual(cm.exception.code, "ai_user_quota"); self.assertEqual(A.ai_usage(uid)["imagesToday"], 5)
+            self.assertEqual(A.ai_usage(self.uid)["imagesToday"], 0)       # another rider is unaffected
+        finally:
+            A.AI_USER_DAILY = old

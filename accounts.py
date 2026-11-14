@@ -6,8 +6,16 @@ Security model
   * Login throttling: 5 failures per phone+IP per 15 minutes, 30 per IP; unknown phones cost the same hashing time as known ones.
   * Each rider's data lives in their own row and is only ever read through their own session (no user id is accepted from the client).
   * No SMS or e-mail is sent: this is phone-number + password sign-in. A forgotten password cannot be recovered (documented).
+
+Data model
+  * userdata   one versioned JSON document per rider: what the browser syncs (source of truth for the app, optimistic concurrency).
+  * work_sessions, orders, shifts, expenses   a relational mirror of that document, rewritten inside the same transaction whenever the
+               matching part changes, so the rider's history can be queried, exported and audited with plain SQL.
+  * imports    one row per screenshot-reading request (reader, images, cache hits, what was found).
+  * statements one row per income statement the rider created.   events   a small activity log (sign-up, login, import, export ...).
+  * ai_usage   images read per rider per day (the per-rider AI quota).
 """
-import contextlib, hashlib, hmac, json, os, re, secrets, sqlite3, threading, time
+import contextlib, csv, hashlib, hmac, io, json, os, re, secrets, sqlite3, threading, time
 from collections import defaultdict, deque
 
 SESSION_DAYS = 30
@@ -17,6 +25,9 @@ CITIES = {"Hyderabad", "Bengaluru"}
 VEHICLES = {"petrol", "ev", "cng", "car"}
 PROFILE_KEYS = {"mileage", "fuelPrice", "maintPerKm", "deadKm", "dataPerHour", "fixedPerDay", "minWage", "fuelPerKmOverride"}
 FLAGS = {"shared", "vehicleOk", "tourDone", "big", "demo"}
+EXPENSE_CATS = {"fuel", "parking_toll", "fine", "repair", "other"}
+AI_USER_DAILY = int(os.environ.get("TRUEWAGE_AI_USER_DAILY", "60"))      # images one rider may have read by AI per day
+AI_USER_ASKS = int(os.environ.get("TRUEWAGE_AI_USER_ASKS", "100"))        # Ask questions per rider per day      # images one rider may have read by AI per day
 
 _db_path = None
 _lock = threading.Lock()
@@ -42,6 +53,25 @@ def init(data_dir):
         CREATE TABLE IF NOT EXISTS userdata(user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, json TEXT NOT NULL,
             version INTEGER NOT NULL DEFAULT 0, updated INTEGER NOT NULL);
         CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
+        CREATE TABLE IF NOT EXISTS work_sessions(user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, sid TEXT NOT NULL, date TEXT NOT NULL, platform TEXT,
+            zone TEXT, online_min REAL, bonus REAL, source TEXT, n_orders INTEGER, pay REAL, incentive REAL, deduction REAL, km REAL, PRIMARY KEY(user_id, sid));
+        CREATE TABLE IF NOT EXISTS orders(user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, sid TEXT NOT NULL, idx INTEGER NOT NULL, hour REAL, zone TEXT,
+            km REAL, pay REAL, incentive REAL, deduction REAL, dur_min REAL, PRIMARY KEY(user_id, sid, idx));
+        CREATE TABLE IF NOT EXISTS shifts(user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, sid TEXT NOT NULL, date TEXT, platform TEXT, start_ts REAL, end_ts REAL,
+            online_min REAL, km REAL, gps TEXT, zone TEXT, zone_min TEXT, PRIMARY KEY(user_id, sid));
+        CREATE TABLE IF NOT EXISTS expenses(user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, eid TEXT NOT NULL, date TEXT NOT NULL, category TEXT, amount REAL,
+            litres REAL, odo REAL, note TEXT, PRIMARY KEY(user_id, eid));
+        CREATE TABLE IF NOT EXISTS imports(id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, ts INTEGER NOT NULL,
+            reader TEXT, images INTEGER, cached INTEGER, sent INTEGER, sessions INTEGER, orders INTEGER, models TEXT);
+        CREATE TABLE IF NOT EXISTS statements(user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, sid TEXT NOT NULL, ts INTEGER NOT NULL, period_from TEXT, period_to TEXT,
+            monthly_take_home REAL, PRIMARY KEY(user_id, sid));
+        CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, ts INTEGER NOT NULL, kind TEXT NOT NULL, detail TEXT);
+        CREATE TABLE IF NOT EXISTS ai_usage(user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, day TEXT NOT NULL, images INTEGER NOT NULL DEFAULT 0, asks INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY(user_id, day));
+        CREATE INDEX IF NOT EXISTS ws_date ON work_sessions(user_id, date);
+        CREATE INDEX IF NOT EXISTS ord_zone ON orders(user_id, zone);
+        CREATE INDEX IF NOT EXISTS exp_date ON expenses(user_id, date);
+        CREATE INDEX IF NOT EXISTS ev_user ON events(user_id, ts);
         """)
         c.execute("DELETE FROM sessions WHERE expires < ?", (int(time.time()),))
     _DUMMY = hash_password("dummy-password-for-timing")
@@ -147,6 +177,7 @@ def register(name, phone, password, lang):
         uid = cur.lastrowid
         c.execute("INSERT INTO userdata(user_id,json,version,updated) VALUES(?,?,0,?)", (uid, "{}", int(time.time())))
         token = _new_session(c, uid)
+        c.execute("INSERT INTO events(user_id,ts,kind,detail) VALUES(?,?,?,?)", (uid, int(time.time()), "register", None))
         return dict(c.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()), token
 
 
@@ -184,6 +215,7 @@ def login(phone, password, ip):
             raise AuthError("bad_credentials", 401)
         with _lock:
             _fails.pop(("p", phone, ip), None)
+        c.execute("INSERT INTO events(user_id,ts,kind,detail) VALUES(?,?,?,?)", (row["id"], int(time.time()), "login", None))
         return dict(row), _new_session(c, row["id"])
 
 
@@ -224,6 +256,12 @@ def _str(v, n, default=""):
     return re.sub(r"[\x00-\x1f]", " ", str(v if v is not None else default))[:n]
 
 
+def _clean_zonemin(z):
+    if not isinstance(z, dict):
+        return {}
+    return {_str(k, 40): _num(v, 0, 1440) for k, v in list(z.items())[:20]}
+
+
 def clean_userdata(d):
     """Coerce whatever the browser sends into the schema the app uses. Wrong types are rejected, numbers are clamped."""
     if not isinstance(d, dict):
@@ -247,8 +285,16 @@ def clean_userdata(d):
             raise AuthError("bad_data")
         out["shifts"] = [{"id": _str(x.get("id"), 60), "date": _str(x.get("date"), 10), "platform": _str(x.get("platform"), 30, "Unknown"), "startTs": _num(x.get("startTs"), 0, 4e12),
                           "endTs": _num(x.get("endTs"), 0, 4e12), "onlineMin": _num(x.get("onlineMin"), 0, 1440), "km": _num(x.get("km"), 0, 1000),
-                          "gps": "on" if x.get("gps") == "on" else "off", "source": _str(x.get("source"), 20)}
+                          "gps": "on" if x.get("gps") == "on" else "off", "source": _str(x.get("source"), 20),
+                          "zone": _str(x.get("zone"), 40) or None, "zoneMin": _clean_zonemin(x.get("zoneMin"))}
                          for x in d["shifts"] if isinstance(x, dict) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(x.get("date", "")))]
+    if "expenses" in d:
+        if not isinstance(d["expenses"], list) or len(d["expenses"]) > 3000:
+            raise AuthError("bad_data")
+        out["expenses"] = [{"id": _str(x.get("id"), 40), "date": x["date"], "category": x.get("category") if x.get("category") in EXPENSE_CATS else "other",
+                            "amount": _num(x.get("amount"), 0, 500000), "litres": _num(x.get("litres"), 0, 500), "odo": _num(x.get("odo"), 0, 10000000),
+                            "note": _str(x.get("note"), 80)}
+                           for x in d["expenses"] if isinstance(x, dict) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(x.get("date", ""))) and _num(x.get("amount"), 0, 500000) > 0]
     if "profile" in d:
         if not isinstance(d["profile"], dict):
             raise AuthError("bad_data")
@@ -286,17 +332,116 @@ def get_data(user_id):
         return (json.loads(row["json"]), row["version"]) if row else ({}, 0)
 
 
+def _mirror(c, uid, new, old):
+    """Rewrite the relational copy of every part of the document that changed. Runs inside the caller's transaction."""
+    if "sessions" in new and new.get("sessions") != old.get("sessions"):
+        c.execute("DELETE FROM work_sessions WHERE user_id=?", (uid,))
+        c.execute("DELETE FROM orders WHERE user_id=?", (uid,))
+        for sx in new["sessions"]:
+            o = sx["orders"]
+            c.execute("INSERT OR REPLACE INTO work_sessions VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                      (uid, sx["id"], sx["date"], sx["platform"], sx["zone"], sx["onlineMin"], sx["bonus"], sx["source"], len(o), sum(x["pay"] for x in o),
+                       sum(x["incentive"] for x in o), sum(x["deduction"] for x in o), sum(x["km"] for x in o)))
+            c.executemany("INSERT OR REPLACE INTO orders VALUES(?,?,?,?,?,?,?,?,?,?)",
+                          [(uid, sx["id"], i, x["hour"], x["zone"], x["km"], x["pay"], x["incentive"], x["deduction"], x["durMin"]) for i, x in enumerate(o)])
+    if "shifts" in new and new.get("shifts") != old.get("shifts"):
+        c.execute("DELETE FROM shifts WHERE user_id=?", (uid,))
+        c.executemany("INSERT OR REPLACE INTO shifts VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                      [(uid, x["id"], x["date"], x["platform"], x["startTs"], x["endTs"], x["onlineMin"], x["km"], x["gps"], x.get("zone"), json.dumps(x.get("zoneMin") or {})) for x in new["shifts"]])
+    if "expenses" in new and new.get("expenses") != old.get("expenses"):
+        c.execute("DELETE FROM expenses WHERE user_id=?", (uid,))
+        c.executemany("INSERT OR REPLACE INTO expenses VALUES(?,?,?,?,?,?,?,?)",
+                      [(uid, x["id"] or "e%d" % i, x["date"], x["category"], x["amount"], x["litres"], x["odo"], x["note"]) for i, x in enumerate(new["expenses"])])
+
+
 def put_data(user_id, data, base_version):
     cleaned, blob = clean_userdata(data)
     with _conn() as c:
         c.execute("BEGIN IMMEDIATE")
-        row = c.execute("SELECT version FROM userdata WHERE user_id=?", (user_id,)).fetchone()
+        row = c.execute("SELECT version, json FROM userdata WHERE user_id=?", (user_id,)).fetchone()
         cur = row["version"] if row else 0
         if base_version != cur:
             raise AuthError("conflict", 409)
+        try:
+            old = json.loads(row["json"]) if row else {}
+        except ValueError:
+            old = {}
         c.execute("INSERT INTO userdata(user_id,json,version,updated) VALUES(?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET json=excluded.json, version=excluded.version, updated=excluded.updated",
                   (user_id, blob, cur + 1, int(time.time())))
+        _mirror(c, user_id, cleaned, old)
         return cur + 1
+
+
+# ---------------- history, export, usage ----------------
+def log_event(user_id, kind, detail=None):
+    with _conn() as c:
+        c.execute("INSERT INTO events(user_id,ts,kind,detail) VALUES(?,?,?,?)", (user_id, int(time.time()), kind, None if detail is None else str(detail)[:120]))
+
+
+def log_import(user_id, reader, images, cached, sent, sessions, orders, models):
+    with _conn() as c:
+        c.execute("INSERT INTO imports(user_id,ts,reader,images,cached,sent,sessions,orders,models) VALUES(?,?,?,?,?,?,?,?,?)",
+                  (user_id, int(time.time()), reader, images, cached, sent, sessions, orders, ",".join(models or [])))
+
+
+def log_statement(user_id, sid, period_from, period_to, monthly):
+    with _conn() as c:
+        c.execute("INSERT OR REPLACE INTO statements VALUES(?,?,?,?,?,?)", (user_id, str(sid)[:30], int(time.time()), str(period_from or "")[:10], str(period_to or "")[:10], _num(monthly, 0, 1e7)))
+
+
+def history(user_id, limit=50):
+    with _conn() as c:
+        def rows(sql, *a):
+            return [dict(r) for r in c.execute(sql, a).fetchall()]
+        st = c.execute("SELECT COUNT(*) AS days, COALESCE(SUM(n_orders),0) AS orders, COALESCE(SUM(pay+incentive+bonus-deduction),0) AS gross, COALESCE(SUM(km),0) AS km, "
+                       "MIN(date) AS first, MAX(date) AS last FROM work_sessions WHERE user_id=?", (user_id,)).fetchone()
+        return {"stats": dict(st),
+                "imports": rows("SELECT ts, reader, images, cached, sent, sessions, orders, models FROM imports WHERE user_id=? ORDER BY id DESC LIMIT ?", user_id, limit),
+                "statements": rows("SELECT sid, ts, period_from, period_to, monthly_take_home FROM statements WHERE user_id=? ORDER BY ts DESC LIMIT ?", user_id, limit),
+                "events": rows("SELECT ts, kind, detail FROM events WHERE user_id=? ORDER BY id DESC LIMIT ?", user_id, limit),
+                "topZones": rows("SELECT zone, COUNT(*) AS orders, ROUND(SUM(pay+incentive-deduction),0) AS gross FROM orders WHERE user_id=? AND zone<>'Unknown' GROUP BY zone ORDER BY gross DESC LIMIT 8", user_id)}
+
+
+def _safe_cell(v):
+    """Spreadsheet formula injection guard: text starting with = + - @ is prefixed so Excel/Sheets treat it as text."""
+    if isinstance(v, str) and v[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + v
+    return v
+
+
+def export_csv(user_id):
+    out = io.StringIO()
+    w = csv.writer(out)
+    w.writerow(["record", "date", "platform", "hour", "zone", "km", "pay", "incentive", "deduction", "online_min", "category", "amount", "note"])
+    with _conn() as c:
+        for r in c.execute("SELECT o.*, s.date AS d, s.platform AS p FROM orders o JOIN work_sessions s ON s.user_id=o.user_id AND s.sid=o.sid WHERE o.user_id=? ORDER BY s.date, o.hour", (user_id,)):
+            w.writerow(["order", r["d"], _safe_cell(r["p"]), r["hour"], _safe_cell(r["zone"]), r["km"], r["pay"], r["incentive"], r["deduction"], "", "", "", ""])
+        for r in c.execute("SELECT * FROM work_sessions WHERE user_id=? ORDER BY date", (user_id,)):
+            w.writerow(["day", r["date"], _safe_cell(r["platform"]), "", "", r["km"], "", "", "", r["online_min"], "", "", "bonus %s" % r["bonus"]])
+        for r in c.execute("SELECT * FROM shifts WHERE user_id=? ORDER BY date", (user_id,)):
+            w.writerow(["shift", r["date"], _safe_cell(r["platform"]), "", _safe_cell(r["zone"] or ""), r["km"], "", "", "", r["online_min"], "", "", ""])
+        for r in c.execute("SELECT * FROM expenses WHERE user_id=? ORDER BY date", (user_id,)):
+            w.writerow(["expense", r["date"], "", "", "", "", "", "", "", "", r["category"], r["amount"], _safe_cell(r["note"])])
+    return out.getvalue()
+
+
+def ai_usage(user_id):
+    day = time.strftime("%Y-%m-%d")
+    with _conn() as c:
+        r = c.execute("SELECT images, asks FROM ai_usage WHERE user_id=? AND day=?", (user_id, day)).fetchone()
+    return {"imagesToday": r["images"] if r else 0, "asksToday": r["asks"] if r else 0, "imageLimit": AI_USER_DAILY}
+
+
+def ai_spend(user_id, images=0, asks=0):
+    """Count AI use against the rider's daily quota. Raises AuthError('ai_user_quota') instead of spending when over it."""
+    day = time.strftime("%Y-%m-%d")
+    with _conn() as c:
+        c.execute("BEGIN IMMEDIATE")
+        r = c.execute("SELECT images, asks FROM ai_usage WHERE user_id=? AND day=?", (user_id, day)).fetchone()
+        if (r["images"] if r else 0) + images > AI_USER_DAILY or (r["asks"] if r else 0) + asks > AI_USER_ASKS:
+            raise AuthError("ai_user_quota", 429)
+        c.execute("INSERT INTO ai_usage(user_id,day,images,asks) VALUES(?,?,?,?) ON CONFLICT(user_id,day) DO UPDATE SET images=images+?, asks=asks+?",
+                  (user_id, day, images, asks, images, asks))
 
 
 def rider_id(user_id):

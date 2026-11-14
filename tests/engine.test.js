@@ -326,3 +326,62 @@ console.log('v7 OK  plan', plan.segments.map(g => g.start + '-' + g.end + ' ' + 
   assert.strictEqual(Math.round(demoRep.total.fixed), 120 * demoRep.calSpan);
   console.log('v14 OK  sparse history span', rep2.calSpan, 'demo span', demoRep.calSpan);
 }
+
+// ---- v15: place detection (addresses from real screenshots, truncation, typos, GPS) ----
+{
+  const P = require('../js/places.js');
+  const z = t => (P.fromText(t) || {}).zone;
+  assert.strictEqual(z('Old Bowenpally - 1-30-121, Ward No 7 Secunderabad, Padmavathi Nagar Colony, Alwal, Hyderabad, Secunderabad, 500010'), 'Bowenpally');
+  assert.strictEqual(z('121, Phase 4, Railway Colony, Cherlapa...'), 'Cherlapally');
+  assert.strictEqual(z('SRT-213, Lane Number 6, Jawahar Nag...'), 'Jawahar Nagar');
+  assert.strictEqual(z('Mytrivanam Bus Stop - Times House, Road Number 2, Green Valley, Banjara Hills'), 'Banjara Hills');
+  assert.strictEqual(z('Flat 4, Gachibowly, near DLF'), 'Gachibowli');               // misspelling in the alias table
+  assert.strictEqual(z('Koramangla 5th block'), 'Koramangala');                       // fuzzy: one letter missing
+  assert.strictEqual(z('Matrix Orchids, Matrix Orchids, Linga...'), undefined);        // nothing known: never guessed
+  assert.strictEqual(P.canon('hsr layout sector 2').zone, 'HSR Layout'); assert.strictEqual(P.canon('Unknown').zone, 'Unknown'); assert.strictEqual(P.canon('Some Colony').known, false);
+  assert.strictEqual(P.nearest(17.4490, 78.3900).zone, 'Madhapur'); assert.strictEqual(P.nearest(12.9340, 77.6250).zone, 'Koramangala');
+  assert.strictEqual(P.nearest(28.6139, 77.2090), null, 'Delhi is outside the covered cities');
+  assert.deepStrictEqual(P.dominant({ Madhapur: 90, Kondapur: 20 }).zone, 'Madhapur'); assert.strictEqual(P.dominant({ Madhapur: 5 }), null);
+  assert.strictEqual(P.cityOf('Whitefield'), 'Bengaluru');
+  console.log('v15 OK  places:', P.PLACES.length, 'areas');
+}
+
+// ---- v15b: the area of a screenshot with none is taken from the GPS-tracked shift of that day; AI zones become canonical ----
+{
+  const sess = [{ id: 'a', date: '2026-11-13', platform: 'Rapido', onlineMin: 0, bonus: 0, orders: [{ hour: 12, zone: 'Unknown', km: 3, pay: 50, incentive: 0, deduction: 0, durMin: 20 }, { hour: 13, zone: 'Uppal', km: 3, pay: 50, incentive: 0, deduction: 0, durMin: 20 }] }];
+  const sh = [{ id: 's1', date: '2026-11-13', platform: 'Rapido', onlineMin: 300, km: 30, zone: 'Madhapur', zoneMin: { Madhapur: 200, Kondapur: 40 } }];
+  const out = TW.applyShifts(sess, sh)[0];
+  assert.strictEqual(out.orders[0].zone, 'Madhapur'); assert.strictEqual(out.orders[0].zoneSrc, 'gps'); assert.strictEqual(out.orders[1].zone, 'Uppal', 'a zone read from the screenshot is never overwritten');
+  assert.strictEqual(out.onlineMin, 300); assert.strictEqual(sess[0].orders[0].zone, 'Unknown', 'input is not mutated');
+  const n = Rd.normalizeSession({ platform: 'Rapido', date: '2026-11-13', orders: [{ time: '10:00', zone: 'Old Bowenpally - 1-30-121, Ward 7', km: 3, pay: 50 }, { time: '11:00', zone: 'Cherlapa...', km: 2, pay: 40 }, { time: '12:00', zone: 'Some Colony', km: 2, pay: 40 }] }, 't');
+  assert.deepStrictEqual(n.orders.map(o => o.zone), ['Bowenpally', 'Cherlapally', 'Some Colony']);
+  console.log('v15b OK  zone fill from GPS shift, canonical zones');
+}
+
+// ---- v16: expenses (actual costs) and fuel calibration from fill-ups ----
+{
+  const prof = Object.assign(TW.defaultProfile('petrol'), D.DEMO_PROFILE);
+  const base = TW.analyze(sessions, prof), dts = base.dates;
+  const ex = [{ id: 'a', date: dts[3], category: 'parking_toll', amount: 300 }, { id: 'b', date: dts[5], category: 'fine', amount: 500 }, { id: 'c', date: '2000-01-01', category: 'other', amount: 9999 }, { id: 'd', date: dts[4], category: 'fuel', amount: 700, odo: 5000 }];
+  const withEx = TW.analyze(sessions, Object.assign({}, prof, { expenses: ex }));
+  assert.ok(Math.abs((base.total.net - withEx.total.net) - 800) < 1e-6, 'only the two in-period non-fuel expenses reduce cash (out-of-period and fuel entries do not): ' + (base.total.net - withEx.total.net));
+  assert.ok(Math.abs(withEx.total.gross - withEx.total.fuel - withEx.total.maint - withEx.total.data - withEx.total.fixed - withEx.total.net) < 1e-6, 'costs still balance to the paisa');
+  assert.ok(Math.abs(withEx.total.maint - base.total.maint - 800) < 1e-6); assert.strictEqual(withEx.extras.n, 2);
+  // an actual repair replaces the per-km repairs estimate instead of being added to it
+  const rep = TW.analyze(sessions, Object.assign({}, prof, { expenses: [{ id: 'r', date: dts[2], category: 'repair', amount: 1200 }] }));
+  assert.ok(Math.abs(rep.total.maint - 1200) < 1e-6, 'maint is exactly the logged repair: ' + rep.total.maint); assert.ok(rep.total.net > base.total.net - 1200 + base.total.maint - 1);
+  // fill-ups with odometer -> real petrol cost per km
+  const fills = [{ category: 'fuel', amount: 500, odo: 10000, litres: 5 }, { category: 'fuel', amount: 420, odo: 10100, litres: 4 }, { category: 'fuel', amount: 450, odo: 10190, litres: 4.2 }, { category: 'fuel', amount: 60, odo: 10195 }];
+  const f = TW.fuelFromFills(fills);
+  assert.strictEqual(f.pairs, 2); assert.ok(Math.abs(f.perKm - (420 + 450) / 190) < 1e-9); assert.ok(f.reliable); assert.ok(Math.abs(f.mileage - 190 / 8.2) < 1e-9);
+  assert.strictEqual(TW.fuelFromFills([{ category: 'fuel', amount: 500, odo: 10000 }]).perKm, null);
+  console.log('v16 OK  expenses balance, repair replaces estimate, fuel calibrated at', f.perKm.toFixed(2), 'per km');
+}
+
+// ---- v17: weekday x time-of-day heatmap ----
+{
+  assert.ok(rep.weekdayDaypart.length > 5); assert.ok(rep.bestSlot && rep.bestSlot.days >= 2 && rep.bestSlot.hours >= 1.5);
+  const top = Math.max.apply(null, rep.weekdayDaypart.filter(c => c.days >= 2 && c.hours >= 1.5).map(c => c.perHr)); assert.ok(Math.abs(rep.bestSlot.perHr - top) < 1e-9);
+  const sumN = rep.weekdayDaypart.reduce((a, c) => a + c.n, 0); assert.strictEqual(sumN, rep.total.n, 'every order lands in exactly one weekday/daypart cell');
+  console.log('v17 OK  best slot', rep.bestSlot.wd, rep.bestSlot.daypart, Math.round(rep.bestSlot.perHr));
+}

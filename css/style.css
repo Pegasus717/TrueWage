@@ -367,3 +367,28 @@ a.link,button.link{color:var(--ink);font-weight:700}
 }
 
 .card.offer{border-left:10px solid var(--yellow);margin-bottom:14px}.card.offer .btn{margin-top:10px}
+
+/* v15: expenses, history */
+.exp-list,.hist{display:flex;flex-direction:column}
+.exp-row,.hrow{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--rule)}
+.exp-row:last-child,.hrow:last-child{border-bottom:0}
+.exp-row>div{flex:1;min-width:0}.exp-row small{display:block;color:var(--ink2);font-size:13px}
+.hrow span{flex:1;min-width:0;font-weight:600;overflow-wrap:anywhere}.hrow small{color:var(--ink2);font-size:13px}
+.status.ok{background:var(--kept-bg);color:var(--kept);border-color:transparent}
+.ai-meter{margin:6px 0}
+.best-slot{font-weight:800;background:var(--yellow);border:2px solid var(--ink);border-radius:12px;padding:10px 12px;margin:0 0 10px}
+
+/* v15b: Rapido-style ride look: pill buttons, gauge, road scene, trip cards */
+.btn{border-radius:999px}.btn.sm{border-radius:999px}
+.sel,.field input,.field select{border-radius:14px}
+.gaugebox{margin:6px auto 4px;max-width:340px}
+.gauge{display:block;width:100%;height:auto;overflow:visible}
+.gauge .g-big{font:900 38px var(--serif);fill:#fff}.gauge .g-sm{font:700 13px var(--sans);fill:#E9DFB5}
+.g-leg{display:flex;flex-wrap:wrap;gap:6px 14px;justify-content:center;font-size:13px;color:#E9DFB5;margin-top:4px}
+.g-leg i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:baseline}
+.routeart{width:100%;height:auto;max-height:220px;margin:0 0 10px;display:block}
+.logo svg{width:40px;height:32px}
+.card.shift #shift-start svg{width:24px;height:24px}
+.kept-card .kbar{height:14px;border-radius:999px;background:rgba(255,255,255,.2)}
+.kept-card .kbar i{border-radius:999px;background:linear-gradient(90deg,#E4572E,#FFC400 45%,#3DDC97)}
+@media(max-width:520px){.gaugebox{max-width:300px}}

@@ -45,10 +45,37 @@
    *    data   = online hours * data cost per hour
    *    EMI    = fixedPerDay * calendar days of the period, spread over worked days, then by online minutes
    *  operating profit = gross - fuel - maint - data ; cash after EMI = operating profit - EMI. */
+  /** Logged expenses that fall inside the worked period. Fuel entries do not add cost (fuel is km x price): they calibrate it, see fuelFromFills.
+   *  Repairs, parking/toll, fines and other costs are real cash out: they are added to the 'repairs & other' line, and when a repair is logged the
+   *  per-km repairs ESTIMATE is dropped for the period (the actual replaces the estimate, it is never added on top of it). */
+  function expenseSplit(expenses, d0, d1) {
+    let extras = 0, repairs = 0, n = 0;
+    (expenses || []).forEach(e => {
+      if (!e || e.category === 'fuel' || !(+e.amount > 0) || !e.date || e.date < d0 || e.date > d1) return;
+      extras += +e.amount; n++; if (e.category === 'repair') repairs += +e.amount;
+    });
+    return { extras, repairs, n, hasRepair: repairs > 0 };
+  }
+
+  /** Real petrol cost per km from fill-ups with an odometer reading: the fuel bought at a fill covers the distance since the previous fill.
+   *  Intervals shorter than 20 km or longer than 2000 km are ignored. Needs 2 usable intervals before the result is called reliable. */
+  function fuelFromFills(expenses) {
+    const f = (expenses || []).filter(e => e && e.category === 'fuel' && +e.amount > 0 && +e.odo > 0).sort((a, b) => a.odo - b.odo);
+    let amt = 0, km = 0, litres = 0, pairs = 0;
+    for (let i = 1; i < f.length; i++) {
+      const d = f[i].odo - f[i - 1].odo;
+      if (d >= 20 && d <= 2000) { amt += +f[i].amount; km += d; pairs++; if (+f[i].litres > 0) litres += +f[i].litres; }
+    }
+    return { perKm: km > 0 ? amt / km : null, mileage: litres > 0 && km > 0 ? km / litres : null, pairs, km, reliable: pairs >= 2 };
+  }
+
   function enrich(sessions, profile) {
     const p = Object.assign(defaultProfile(), profile || {});
     const fuelPerKm = fuelKm(p);
-    const vehicleKm = fuelPerKm + p.maintPerKm;
+    const ds = sessions.filter(s => s.orders && s.orders.length).map(s => s.date).sort();
+    const ex = ds.length ? expenseSplit(p.expenses, ds[0], ds[ds.length - 1]) : { extras: 0, hasRepair: false };
+    const maintK = ex.hasRepair ? 0 : p.maintPerKm;
+    const vehicleKm = fuelPerKm + maintK;
     const out = [];
     sessions.forEach((s, si) => {
       const orders = (s.orders || []).slice();
@@ -71,7 +98,7 @@
         const incentive = (+o.incentive || 0) + bonusEach;
         const gross = (+o.pay || 0) + incentive - (+o.deduction || 0);
         const fuel = totalKm * fuelPerKm;
-        const maint = totalKm * p.maintPerKm;
+        const maint = totalKm * maintK;
         const data = mins / 60 * p.dataPerHour;
         const hour = +o.hour;
         out.push({
@@ -91,8 +118,11 @@
       const perWorkedDay = p.fixedPerDay * calSpan / dates.length;
       const dayMins = new Map(), dayN = new Map();
       out.forEach(o => { dayMins.set(o.date, (dayMins.get(o.date) || 0) + o.mins); dayN.set(o.date, (dayN.get(o.date) || 0) + 1); });
+      const extraPerDay = ex.extras / dates.length;                          // logged cash costs, spread over worked days then by minutes
       out.forEach(o => {
         const dm = dayMins.get(o.date);
+        const extra = dm > 0 ? extraPerDay * o.mins / dm : extraPerDay / dayN.get(o.date);
+        o.maint += extra; o.op -= extra;
         o.fixed = dm > 0 ? perWorkedDay * o.mins / dm : perWorkedDay / dayN.get(o.date);
         o.cost = o.fuel + o.maint + o.data + o.fixed;
         o.net = o.gross - o.cost;
@@ -242,11 +272,19 @@
       const l = orders.filter(o => new Date(o.date + 'T00:00:00Z').getUTCDay() === wd);
       return { wd, days: new Set(l.map(o => o.date)).size, ...aggregate(l) };
     });
+    // weekday x time of day: real pay per hour; a cell needs >= 1.5 online hours (and its best-slot claim >= 2 different days)
+    const weekdayDaypart = [];
+    for (let wd = 0; wd < 7; wd++) DAYPARTS.forEach(dp => {
+      const l = orders.filter(o => o.daypart === dp && new Date(o.date + 'T00:00:00Z').getUTCDay() === wd);
+      if (!l.length) return;
+      const a = aggregate(l); weekdayDaypart.push({ wd, daypart: dp, days: new Set(l.map(o => o.date)).size, hours: a.hours, perHr: a.perHr, n: a.n });
+    });
+    const bestSlot = weekdayDaypart.filter(c => c.days >= 2 && c.hours >= 1.5).sort((x, y) => y.perHr - x.perHr)[0] || null;
     const avgWaitPerOrder = total.wait / total.n;
 
     return {
-      byWeekday, avgWaitPerOrder,
-      calSpan, dataQuality, profile: p, orders, total, spanDays, daysWorked, dates, byDay, byHour, byPlatform, byZone, byDaypart,
+      byWeekday, weekdayDaypart, bestSlot, avgWaitPerOrder,
+      calSpan, extras: expenseSplit(p.expenses, dates[0], dates[dates.length - 1]), dataQuality, profile: p, orders, total, spanDays, daysWorked, dates, byDay, byHour, byPlatform, byZone, byDaypart,
       combos, zoneDaypart, breakEvenPerKm, belowBEPct, deadKmPerDay, deadCostPerDay, leakPct, insights, whatIf,
       perDay: { gross: total.appShown / daysWorked, net: total.net / daysWorked, hours: total.hours / daysWorked },
       medianDayNet: median(byDay.map(d => d.net))
@@ -404,7 +442,13 @@
   /** Fill in online time from a tracked shift when the screenshot did not show it. Screenshot values always win. */
   function applyShifts(sessions, shifts) {
     const m = new Map(pairShifts(sessions, shifts).map(p => [p.session, p.shift]));
-    return sessions.map(x => (m.has(x) && !x.onlineMin && m.get(x).onlineMin > 0) ? Object.assign({}, x, { onlineMin: m.get(x).onlineMin }) : x);
+    return sessions.map(x => {
+      const sh = m.get(x); if (!sh) return x;
+      let y = x;
+      if (!x.onlineMin && sh.onlineMin > 0) y = Object.assign({}, y, { onlineMin: sh.onlineMin });
+      if (sh.zone && (y.orders || []).some(o => !o.zone || o.zone === 'Unknown')) y = Object.assign({}, y, { zoneFromGps: sh.zone, orders: y.orders.map(o => (!o.zone || o.zone === 'Unknown') ? Object.assign({}, o, { zone: sh.zone, zoneSrc: 'gps' }) : o) });
+      return y;
+    });
   }
 
   /** Unpaid riding measured from GPS: (all kilometres ridden - kilometres the apps paid for) / paid kilometres.
@@ -516,6 +560,6 @@
       perHr: hoursMonth > 0 ? cashMonth / hoursMonth : 0, opPerHr: hrs > 0 ? opDay / hrs : 0 };
   }
 
-  const API = { planDay, areaSwitch, weeks, weeklyCoach, haversine, addFix, pairShifts, applyShifts, measuredDeadKm, sensitivity, fuelKm, simulate, simWindows, orderCheck, planNow, fairFloor, dayReceipt, VEHICLES, DAYPARTS, DAYPART_HOURS, daypartOf, defaultProfile, enrich, aggregate, analyze, statementData, median, round };
+  const API = { planDay, areaSwitch, weeks, weeklyCoach, haversine, addFix, pairShifts, applyShifts, measuredDeadKm, sensitivity, fuelKm, simulate, simWindows, orderCheck, planNow, fairFloor, dayReceipt, expenseSplit, fuelFromFills, VEHICLES, DAYPARTS, DAYPART_HOURS, daypartOf, defaultProfile, enrich, aggregate, analyze, statementData, median, round };
   if (typeof module !== 'undefined' && module.exports) module.exports = API; else root.TW = Object.assign(root.TW || {}, API);
 })(typeof window !== 'undefined' ? window : globalThis);

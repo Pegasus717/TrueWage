@@ -21,6 +21,9 @@ No one can guarantee a win. What follows is what we can control: a problem judge
 | **Feasibility** | A real product, not a mock-up: accounts, saved data, guest mode; runs today, no dependencies, Docker/Vultr docs, CI |
 | **Honesty** | Simulated data is labelled everywhere; self-reported statement says so; limits listed below |
 
+## 2b. Features added late (mention if asked "what else?")
+Speedometer dashboard, place detection from addresses and GPS, expenses with real petrol cost per km from fill-ups, best day-and-time grid, per-rider history in a database with CSV export, AI usage meter and quotas.
+
 ## 3. Three-minute demo script (works without any API key)
 0. **Own dashboard (before the clock starts):** in two browser windows create two riders (e.g. Ravi and Sneha), add different data, and show each sees only their own numbers; log out and back in on the second window to show it was saved on the server.
 1. **Landing (0:00):** switch to తెలుగు, the page changes. Tap **Demo rider · Bengaluru** (or Hyderabad), or log in to your prepared rider.

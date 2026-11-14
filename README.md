@@ -12,6 +12,12 @@ Delivery partners and cab drivers on Swiggy, Zomato, Rapido and Ola see a headli
 
 ## What it does
 
+* **Ride-style dashboard:** the Home screen is a speedometer. The needle is what you really earn per hour, the yellow marker is what the apps imply, the red tick is the fair-wage line; below it a fuel-gauge bar shows how much of the apps' total you kept.
+* **Place detection (areas):** 42 Hyderabad and Bengaluru areas with aliases and approximate centroids. An area is found (1) from GPS while a shift is tracked (minutes per area are stored, never the route), (2) from address text on a screenshot: alias match with the earliest mention winning ("Old Bowenpally ... Secunderabad" is Bowenpally), prefix match for truncated addresses ("Cherlapa..."), and fuzzy match for OCR typos, (3) otherwise it stays "Unknown" and is never guessed. Screenshots that show no area (single-trip screens) take the area of that day's GPS-tracked shift, marked as GPS-derived.
+* **Expenses and fuel:** log fill-ups (with odometer), parking/toll, fines, repairs and other costs. Fill-ups with odometer readings measure your **real petrol cost per km and mileage** (used instead of the estimate once 2 intervals exist); logged costs inside your worked days reduce cash exactly once (a logged repair replaces the per-km repairs estimate instead of being added to it).
+* **Best time to drive:** a weekday x time-of-day grid of real pay per hour (cells need 1.5 online hours; the "best slot" claim needs 2 different days).
+* **Your history in a database:** accounts are stored in SQLite with a relational copy of your data (work sessions, orders, shifts, expenses) plus import history, income statements and an activity log. The **My history** screen shows totals, best areas, past screenshot reads and statements; **Download all my data (CSV)** exports everything (spreadsheet-formula-safe).
+* **AI usage meter:** signed-in riders see how many AI readings they have left today.
 * **Rider accounts and private dashboards** – sign up with a name, 10-digit mobile number and password; every rider gets their own dashboard, and their data follows them across phones. Log in on a new phone and everything is there. Data made as a guest on the phone is merged into the account on sign-up. Without an account the app still works fully (data stays on that phone). Passwords are stored as salted **scrypt** hashes; the session is a random token in an `HttpOnly`, `SameSite=Strict` cookie (30 days, only a hash of it is stored); wrong-password attempts are throttled; every write carries a CSRF header; two devices editing at once are merged by record id (nothing is lost). Riders can change their password and **delete their account and all data** from the app. City contributions from an account use an anonymous HMAC id, so several phones count as one rider.
 * **Plan my day** – enter a take-home goal; the app builds an ordered schedule from your own best windows ("17:00–23:00 · Zomato · Madhapur · about ₹135/hour") and says honestly when your history can't reach the goal.
 * **Area switching** – "At lunch you earn ₹18/hour in Kukatpally. In Gachibowli riders earn about ₹X/hour (simulated city data). Try moving there." Your own better areas at the same time are preferred over city data.
@@ -39,7 +45,8 @@ With `ANTHROPIC_API_KEY` set, Claude vision reads screenshots of **any layout** 
 * **One request per batch:** up to 8 screenshots go in a single call, not one call each.
 * **Never pay twice:** the server caches the result per image (SHA-256 of the bytes), so the same screenshot costs nothing the second time, for any rider. The browser also skips files it already imported.
 * **Cheap model first:** `TRUEWAGE_EXTRACT_MODEL` (default `claude-haiku-5-5`) reads everything; only images it could not read are retried once with `TRUEWAGE_ESCALATE_MODEL` (default `claude-sonnet-5-5`).
-* **Hard budget:** `TRUEWAGE_AI_DAILY_IMAGES` (default 400) caps images sent upstream per day, on top of per-IP limits (20 requests/hour).
+* **Hard budgets:** `TRUEWAGE_AI_DAILY_IMAGES` (default 400) caps images sent upstream per day for the whole server; `TRUEWAGE_AI_USER_DAILY` (default 60) caps images per signed-in rider per day and `TRUEWAGE_AI_USER_ASKS` (default 100) caps Ask questions; per-IP limits (20 requests/hour) still apply. Cache hits cost nothing against any of them.
+* **Ask is cheap too:** it runs on `TRUEWAGE_MODEL` (default Haiku), replies are capped at 350 tokens, and the same question about the same numbers within 10 minutes is answered from a cache.
 * **Backoff and fallback:** 429/overload responses are retried twice (honouring `Retry-After`); after that, or when the budget is spent, the browser automatically uses the on-device OCR reader and tells the rider.
 * **Small replies:** output is capped at about 450 tokens per image, and Ask only ever sends a short summary of already-computed numbers.
 
@@ -101,7 +108,7 @@ server.py      static files (whitelist) + API, stdlib only
 accounts.py    users, sessions, per-rider data (SQLite, scrypt), stdlib only
 ```
 
-API: `GET /api/health` · `POST /api/extract` · `POST /api/ask` · `POST /api/statement`, `GET /api/statement/<id>` · `POST /api/contribute`, `GET /api/city` · `POST /api/auth/register|login|logout` · `GET /api/me` · `PUT /api/me/data` · `POST /api/me/password` · `DELETE /api/me`.
+API: `GET /api/me/history` · `GET /api/me/export.csv` · `GET /api/health` · `POST /api/extract` · `POST /api/ask` · `POST /api/statement`, `GET /api/statement/<id>` · `POST /api/contribute`, `GET /api/city` · `POST /api/auth/register|login|logout` · `GET /api/me` · `PUT /api/me/data` · `POST /api/me/password` · `DELETE /api/me`.
 
 ## Security and privacy
 

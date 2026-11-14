@@ -5,6 +5,10 @@
   const KNOWN_PLATFORMS = ['Swiggy', 'Zomato', 'Rapido', 'Ola', 'Uber', 'Porter', 'Blinkit', 'Zepto', 'Dunzo', 'Shadowfax', 'Ecom Express'];
   const KNOWN_ZONES = ['Madhapur', 'Gachibowli', 'Kondapur', 'Banjara Hills', 'Secunderabad', 'Uppal', 'Dilsukhnagar', 'Kukatpally', 'Hitech City', 'Koramangala', 'Indiranagar', 'Whitefield', 'HSR Layout', 'Marathahalli', 'Jayanagar', 'Hebbal', 'Electronic City', 'BTM Layout', 'JP Nagar', 'Andheri', 'Bandra', 'Connaught Place', 'T Nagar', 'Adyar'];
 
+  const PL = () => root.TWPlaces || (typeof require === 'function' ? require('./places.js') : null);
+  /** Canonical area for a zone string or address; unknown places are kept as written, never guessed. */
+  const zoneOf = (...c) => { const P = PL(); for (const x of c) { if (!x || /^unknown$/i.test(x)) continue; const k = P ? P.canon(x) : { zone: x }; return k.zone; } return 'Unknown'; };
+
   async function sha256(buf) {
     const h = await crypto.subtle.digest('SHA-256', buf);
     return Array.from(new Uint8Array(h)).map(b => b.toString(16).padStart(2, '0')).join('');
@@ -42,7 +46,7 @@
   /** One request per batch of up to 8 images (the server only forwards images it has not read before). */
   async function extractWithAI(dataUrls) {
     const small = await Promise.all(dataUrls.map(compressForAI));
-    const sessions = [], offers = [], notes = []; const meta = { images: 0, cached: 0, sent: 0, models: [] };
+    let usage = null; const sessions = [], offers = [], notes = []; const meta = { images: 0, cached: 0, sent: 0, models: [] };
     for (let i = 0; i < small.length; i += 8) {
       const r = await fetch('api/extract', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-TW': '1' }, body: JSON.stringify({ images: small.slice(i, i + 8) }) });
       if (!r.ok) {
@@ -52,9 +56,10 @@
       const j = await r.json();
       (j.sessions || []).forEach((x, k) => sessions.push(normalizeSession(x, 'ai-' + (i + k))));
       (j.offers || []).forEach(o => offers.push(o)); (j.notes || []).forEach(n => notes.push(n));
+      if (j.usage) usage = j.usage;
       if (j.meta) { meta.images += j.meta.images; meta.cached += j.meta.cached; meta.sent += j.meta.sent; meta.models = meta.models.concat(j.meta.models || []); }
     }
-    return { sessions, offers, notes, meta };
+    return { sessions, offers, notes, meta, usage };
   }
 
   /** AI output -> app session. Unknown values are never silently invented: guessed hours, distances and dates are counted so the review step can flag them,
@@ -68,7 +73,7 @@
       if (!isFinite(hour)) { hour = last != null ? last : 13; guessedHours++; } else last = hour;
       let km = +o.km || +o.distance_km || 0;
       if (!(km > 0)) { km = Math.round(avgKm * 10) / 10; guessedKm++; }
-      return { hour, zone: o.zone || o.area || s.zone || 'Unknown', km, pay: +o.pay || +o.payout || 0, incentive: +o.incentive || +o.bonus || 0, deduction: +o.deduction || +o.penalty || 0,
+      return { hour, zone: zoneOf(o.zone, o.place_text, o.area, s.zone), km, pay: +o.pay || +o.payout || 0, incentive: +o.incentive || +o.bonus || 0, deduction: +o.deduction || +o.penalty || 0,
         durMin: +o.duration_min || +o.durMin || Math.round(10 + km * 3.4) };
     }).filter(o => isFinite(o.hour));
     const visible = orders.reduce((a, o) => a + o.pay + o.incentive, 0);
@@ -238,7 +243,7 @@
         else { if (kmM && !amounts.length) unread++; return; }
       } else lastTime = time;
       if (!amounts.length) { if (kmM || /₹|rs\b/i.test(line) || line.replace(/\D/g, '').length >= 4) unread++; return; }
-      const zone = firstZone(line) || (hint && hint.zone) || 'Unknown'; // the pickup area is the one named first
+      const zone = (PL() && (PL().fromText(line) || {}).zone) || firstZone(line) || (hint && hint.zone) || 'Unknown'; // the pickup area is the one named first
       const km = kmM ? +kmM[1] : 0;
       const fix = a => { // "264.00" for "₹64.00": only when the rider could not have been paid that per km
         if (a.sym || !km || !/^[27]\d{2,3}(\.\d+)?$/.test(a.raw || '')) return a.v;
@@ -319,13 +324,13 @@
   }
 
   async function readDataUrls(dataUrls, onProgress, forceOCR) {
-    let sessions, reader, unread = 0, offers = [], notes = [], meta = null, fallback = null;
+    let sessions, reader, unread = 0, offers = [], notes = [], meta = null, fallback = null, usage = null;
     if (!forceOCR && await aiAvailable()) {
-      try { const a = await extractWithAI(dataUrls); sessions = a.sessions; offers = a.offers; notes = a.notes; meta = a.meta; reader = 'ai'; }
+      try { const a = await extractWithAI(dataUrls); sessions = a.sessions; offers = a.offers; notes = a.notes; meta = a.meta; usage = a.usage; reader = 'ai'; }
       catch (e) { console.warn(e); fallback = e.code || 'failed'; }
     }
     if (!sessions) { const o = await extractWithOCR(dataUrls, onProgress); sessions = o.sessions; unread = o.unread; reader = 'ocr'; }
-    return { sessions, reader, unread, offers, notes, meta, fallback };
+    return { sessions, reader, unread, offers, notes, meta, fallback, usage };
   }
 
   /** Main entry for uploaded files. Screenshots whose SHA-256 is already in `known` are skipped (duplicate imports).
@@ -339,7 +344,7 @@
     const dupImages = files.length - fresh.length;
     if (!fresh.length) return { sessions: [], reader: null, hashes: [], dataUrls, dupImages, unread: 0 };
     const r = await readDataUrls(fresh, onProgress);
-    return { sessions: r.sessions, reader: r.reader, hashes: freshHashes, dataUrls, dupImages, unread: r.unread || 0, offers: r.offers || [], notes: r.notes || [], meta: r.meta, fallback: r.fallback };
+    return { sessions: r.sessions, reader: r.reader, hashes: freshHashes, dataUrls, dupImages, unread: r.unread || 0, offers: r.offers || [], notes: r.notes || [], meta: r.meta, fallback: r.fallback, usage: r.usage };
   }
 
   /** Duplicate-session detection: same app + day and (almost) the same orders. */
