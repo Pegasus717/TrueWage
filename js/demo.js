@@ -59,6 +59,16 @@
     return sessions;
   }
 
+  /** Simulated tracked shifts for the demo rider. Online time equals the screenshot's; kilometres vary shift to shift but are
+   *  scaled so the overall unpaid-riding factor is exactly `factor`, keeping every demo number consistent. Labelled demo. */
+  function demoShifts(sessions, factor) {
+    const r = rng(99), f = factor == null ? 0.45 : factor;
+    const base = sessions.map(s => ({ s, paid: s.orders.reduce((a, o) => a + o.km, 0), w: 0.4 + r() * 1.2 }));
+    const totalPaid = base.reduce((a, b) => a + b.paid, 0), want = totalPaid * f, wsum = base.reduce((a, b) => a + b.paid * b.w, 0);
+    return base.map((b, i) => ({ id: 'demo-shift-' + i, date: b.s.date, platform: b.s.platform, startTs: 0, endTs: 0, onlineMin: b.s.onlineMin,
+      km: Math.round((b.paid + want * (b.paid * b.w) / wsum) * 10000) / 10000, gps: 'on', source: 'demo' }));
+  }
+
   /* ---------------- simulated city data (labelled as simulated everywhere in the UI) --------------- */
   const CITY_ZONES = {
     Madhapur: 1.18, Gachibowli: 1.12, Kondapur: 1.05, 'Banjara Hills': 1.0,
@@ -128,6 +138,6 @@
 
   // a rider paying off a financed bike: Rs 3,600/month EMI (~Rs 120/day)
   const DEMO_PROFILE = { fixedPerDay: 120 };
-  const API = { demoSessions, cityData, renderSampleScreens, rng, WINDOWS, CITY_ZONES, K_ANON, DEMO_PROFILE };
+  const API = { demoShifts, demoSessions, cityData, renderSampleScreens, rng, WINDOWS, CITY_ZONES, K_ANON, DEMO_PROFILE };
   if (typeof module !== 'undefined' && module.exports) module.exports = API; else root.TWDemo = API;
 })(typeof window !== 'undefined' ? window : globalThis);

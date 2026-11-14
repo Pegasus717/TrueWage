@@ -359,8 +359,61 @@
     };
     const base = run(1, 1, 1);
     const fk = calibrated ? 0.1 : 0.2;
-    const lo = run(1 + fk, 1.45, 1.3), hi = run(1 - fk, 0.55, 0.7);
+    const dv = p.deadMeasured ? [1, 1] : [1.45, 0.55];          // GPS-measured unpaid riding is not an assumption
+    const lo = run(1 + fk, dv[0], 1.3), hi = run(1 - fk, dv[1], 0.7);
     return { base, lo: Math.min(lo.perHr, base.perHr), hi: Math.max(hi.perHr, base.perHr), loCash: Math.min(lo.cash, base.cash), hiCash: Math.max(hi.cash, base.cash), calibrated };
+  }
+
+  /* ---------------- shift tracking: the rider's own measured hours and distance ---------------- */
+  function haversine(a, b) {                       // metres between two lat/lon points
+    const R = 6371000, rad = x => x * Math.PI / 180;
+    const dLat = rad(b.lat - a.lat), dLon = rad(b.lon - a.lon);
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLon / 2) ** 2;
+    return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+  }
+
+  /** Add one GPS fix to a running shift { km, last }. Honest filtering, nothing is invented:
+   *  - poor fixes (accuracy worse than 50 m) are ignored
+   *  - movement smaller than the GPS jitter (15 m or the fix's own accuracy) is ignored without moving the anchor, so slow riding still adds up
+   *  - jumps implying more than 45 m/s (162 km/h) are treated as glitches: the anchor moves, no distance is added
+   *  Only the running total is kept, never the route. */
+  function addFix(shift, fix) {
+    const st = Object.assign({ km: 0, last: null }, shift);
+    if (!(fix.acc <= 50)) return st;
+    if (!st.last) { st.last = { lat: fix.lat, lon: fix.lon, t: fix.t }; return st; }
+    const d = haversine(st.last, fix), dt = Math.max(1, (fix.t - st.last.t) / 1000);
+    if (d < Math.max(15, fix.acc || 0)) return st;
+    if (d / dt <= 45) st.km += d / 1000;
+    st.last = { lat: fix.lat, lon: fix.lon, t: fix.t };
+    return st;
+  }
+
+  /** Pair each tracked shift with a screenshot session of the same day (and same app when known). One shift per session. */
+  function pairShifts(sessions, shifts) {
+    const used = new Set(), pairs = [];
+    (shifts || []).forEach(sh => {
+      let idx = sessions.findIndex((x, i) => !used.has(i) && x.date === sh.date && x.platform === sh.platform);
+      if (idx < 0 && (sh.platform === 'Unknown' || !sh.platform)) idx = sessions.findIndex((x, i) => !used.has(i) && x.date === sh.date);
+      if (idx >= 0) { used.add(idx); pairs.push({ session: sessions[idx], shift: sh }); }
+    });
+    return pairs;
+  }
+
+  /** Fill in online time from a tracked shift when the screenshot did not show it. Screenshot values always win. */
+  function applyShifts(sessions, shifts) {
+    const m = new Map(pairShifts(sessions, shifts).map(p => [p.session, p.shift]));
+    return sessions.map(x => (m.has(x) && !x.onlineMin && m.get(x).onlineMin > 0) ? Object.assign({}, x, { onlineMin: m.get(x).onlineMin }) : x);
+  }
+
+  /** Unpaid riding measured from GPS: (all kilometres ridden - kilometres the apps paid for) / paid kilometres.
+   *  Only shifts with a plausible track (>= 80% of the paid km) count. Reliable after 3 paired shifts and 30 paid km. */
+  function measuredDeadKm(sessions, shifts) {
+    let paid = 0, tracked = 0, n = 0;
+    pairShifts(sessions, shifts).forEach(({ session, shift }) => {
+      const pk = sum(session.orders || [], o => +o.km || 0);
+      if (shift.km > 0 && pk > 0 && shift.km >= pk * 0.8) { paid += pk; tracked += shift.km; n++; }
+    });
+    return { factor: paid > 0 ? Math.max(0, (tracked - paid) / paid) : null, pairs: n, paidKm: paid, trackedKm: tracked, reliable: n >= 3 && paid >= 30 };
   }
 
   /** Historical working windows (platform x zone x time of day) with their per-hour economics. */
@@ -390,6 +443,6 @@
       perHr: hoursMonth > 0 ? cashMonth / hoursMonth : 0, opPerHr: hrs > 0 ? opDay / hrs : 0 };
   }
 
-  const API = { sensitivity, fuelKm, simulate, simWindows, orderCheck, planNow, fairFloor, dayReceipt, VEHICLES, DAYPARTS, DAYPART_HOURS, daypartOf, defaultProfile, enrich, aggregate, analyze, statementData, median, round };
+  const API = { haversine, addFix, pairShifts, applyShifts, measuredDeadKm, sensitivity, fuelKm, simulate, simWindows, orderCheck, planNow, fairFloor, dayReceipt, VEHICLES, DAYPARTS, DAYPART_HOURS, daypartOf, defaultProfile, enrich, aggregate, analyze, statementData, median, round };
   if (typeof module !== 'undefined' && module.exports) module.exports = API; else root.TW = Object.assign(root.TW || {}, API);
 })(typeof window !== 'undefined' ? window : globalThis);

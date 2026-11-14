@@ -266,3 +266,10 @@ html.big{font-size:19px}html.big body{font-size:19px}
 @keyframes pulse{50%{box-shadow:0 0 0 8px rgba(181,55,26,.18)}}
 @media(max-height:700px){.chat{max-height:30vh}}
 .fab{min-height:50px;padding:0 18px}
+
+/* ---------- shift tracker ---------- */
+.shift.on{border:2px solid var(--kept);background:var(--kept-bg)}
+.shift-big{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:8px 0}
+.shift-big>div{background:var(--surface);border-radius:12px;padding:10px 12px}
+.shift-big .num{display:block;font:600 34px/1.1 var(--serif);letter-spacing:-1px}
+.shift-big small{color:var(--ink2);font-size:13px}

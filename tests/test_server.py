@@ -47,6 +47,10 @@ class T(unittest.TestCase):
         _, _, r = self.req("GET", "/api/health")
         self.assertEqual(r.getheader("X-Content-Type-Options"), "nosniff")
         self.assertEqual(r.getheader("X-Frame-Options"), "DENY")
+        pp = r.getheader("Permissions-Policy")
+        self.assertIn("geolocation=(self)", pp)   # the shift tracker needs GPS
+        self.assertIn("microphone=(self)", pp)    # voice questions need the mic
+        self.assertIn("camera=()", pp)
 
     def test_health_never_leaks_key(self):
         s, j, _ = self.req("GET", "/api/health")

@@ -56,7 +56,7 @@ From any machine with Python 3:
 python tools/smoke.py https://truewage.example.com     # or http://SERVER_IP:8080
 ```
 
-Expected: 22 `PASS` lines and `ALL CHECKS PASSED`. The script also prints whether Claude vision is on. Then open the site on a phone and press **See a demo rider**.
+Expected: 23 `PASS` lines and `ALL CHECKS PASSED`. The script also prints whether Claude vision is on. Then open the site on a phone and press **See a demo rider**.
 
 ## 4. Operate
 

@@ -12,6 +12,7 @@ Delivery partners and cab drivers on Swiggy, Zomato, Rapido and Ola see a headli
 
 ## What it does
 
+* **Shift tracker (hours and distance, as the project idea requires)** – tap *Start shift* when you go online and *Stop* when you finish. TrueWage measures your **online hours** (so waiting time is real, not guessed) and the **real distance you ride via GPS, including unpaid kilometres**. Only the running total distance is stored, never your route. After 3 shifts are paired with that day's screenshots (and 30+ paid km), the **GPS-measured unpaid-riding factor replaces our assumption** in every calculation and narrows the accuracy range. A tracked shift without screenshots is flagged ("Add that day's screenshots to see what it paid"). GPS fixes are filtered honestly: poor-accuracy fixes, jitter and impossible jumps are ignored.
 * **Import in three taps** – *Add screenshots* → choose files → the app reads them and shows one card per screenshot (app, date, orders, total). Tap **Save** to see the result; tap *Edit orders* only if something looks wrong. Upload earnings screenshots (PNG/JPEG/WebP, several at once). Claude vision reads them when a key is configured on the server; otherwise on-device OCR (Tesseract.js) runs in the browser. Nothing is saved until the rider has **reviewed and corrected** the extracted orders. Duplicate screenshots (by SHA-256) and duplicate sessions (same app, day and orders) are detected and skipped. Order-like lines the reader could not parse are counted and shown, not silently dropped. Out-of-range values block saving.
 * **Cash in hand** – the home screen answers one question first: how much money did I actually make? A ledger runs from the app's total, through cuts, fuel, repairs, data, **profit before EMI**, the vehicle EMI, to **cash remaining**; every line is drawn as a waterfall step. View the whole period, a typical day or any single day.
 * **Evidence-based advice** in English, हिन्दी, తెలుగు and தமிழ், with voice playback: most and least profitable windows, earnings per km, platform comparison, expense breakdown, waiting-time impact, break-even order value. With fewer than ~3 working days of data the app says so and shows no pattern advice.
@@ -52,8 +53,8 @@ cash remaining    = operating profit - EMI
 real pay per hour = cash remaining / online hours   (online hours include waiting)
 ```
 
-* **Unpaid distance** = paid km x an editable factor (default 0.45) for riding to restaurants and back to busy areas. It is part of fuel and repairs, shown as a note, never subtracted twice.
-* **Waiting** = the app's online time minus time spent on orders. If a screenshot has no online time the review step warns that waiting is not counted and hourly pay is overstated.
+* **Unpaid distance** = paid km x a factor for riding to restaurants and back to busy areas: **measured from GPS shifts when 3+ are paired with screenshots**, otherwise an editable assumption (default 0.45). It is part of fuel and repairs, shown as a note, never subtracted twice.
+* **Waiting** = online time (from the screenshot, or from a tracked shift when the screenshot has none) minus time spent on orders. If a screenshot has no online time the review step warns that waiting is not counted and hourly pay is overstated.
 * Defaults (mileage, fuel price, repairs, data, ₹90/h fair-wage line) are **editable assumptions**, not sourced statistics.
 * Verified by tests: costs balance to the paisa (`gross - costs = cash`), EMI totals exactly `EMI/day x calendar days`, receipts add up, and the what-if simulator with unchanged inputs reproduces history exactly.
 
@@ -62,7 +63,7 @@ real pay per hour = cash remaining / online hours   (online hours include waitin
 ```bash
 node tests/engine.test.js                   # calculation engine, accuracy range, calibration, Ask intent detection in 4 languages, parser, duplicates, simulator
 python -m unittest discover -s tests        # server (19 tests): validation, k-anonymity, registry, static whitelist, rate limit, extraction + Ask flow against a mock model API
-python tools/smoke.py http://127.0.0.1:8080 # 22 checks against any running deployment
+python tools/smoke.py http://127.0.0.1:8080 # 23 checks against any running deployment
 ```
 
 What the tests do **not** prove: accuracy of the real Claude model on real screenshots (the extraction flow is tested against a local mock of the model API), and real-world OCR accuracy on arbitrary app layouts. On the bundled sample screenshots on-device OCR recovered every order and amount in manual testing; one bonus digit was misread, which is exactly why the review step exists.
@@ -96,6 +97,7 @@ API: `GET /api/health` · `POST /api/extract` · `POST /api/ask` · `POST /api/s
 * A lender needs the registry (server mode) to detect a forged *code*; the static link only detects an *edited number*.
 * The what-if assumes each window keeps the pay per hour seen in the rider's own history; extra hours in a window may earn less.
 * City analytics shown in the demo are simulated. Live data appears only after 20+ real contributors.
+* GPS tracking needs location permission and the page kept open (an installed app works best); browsers pause location in the background. It was verified with simulated GPS fixes in development, not on a real ride.
 * Voice input needs a browser with the Web Speech API (Chrome on Android works; support for Indian languages depends on the device). Typing always works.
 * Offline mode (service worker) is implemented but could not be verified in the development browser pane; test it in Chrome after deploying.
 * OCR needs internet once to fetch Tesseract.js and Google Fonts from CDNs.

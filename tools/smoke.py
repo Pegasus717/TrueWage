@@ -30,6 +30,7 @@ print("     Claude vision:", "ON" if json.loads(raw).get("ai") else "off (on-dev
 s, raw, h = call("GET", "/")
 check("app shell served", s == 200 and b"TrueWage" in raw)
 check("security headers", h.get("X-Content-Type-Options") == "nosniff" and h.get("X-Frame-Options") == "DENY")
+check("GPS and mic allowed for the app itself", "geolocation=(self)" in (h.get("Permissions-Policy") or "") and "microphone=(self)" in (h.get("Permissions-Policy") or ""))
 for p in ["/js/app.js", "/js/engine.js", "/js/ask.js", "/css/style.css", "/manifest.json", "/sw.js", "/icon.svg"]:
     check("static " + p, call("GET", p)[0] == 200)
 for p in ["/server.py", "/.env", "/data/registry.json", "/tests/test_server.py", "/Dockerfile"]:

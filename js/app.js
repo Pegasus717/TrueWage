@@ -32,13 +32,13 @@
     sessions: [], profile: T.defaultProfile('petrol'), hashes: [], reader: null, lastBatch: [], shared: false,
     rider: { name: '', phone4: '' }, lang: 'en', report: null, tab: 'home', demo: false,
     day: null, goal: 800, simHour: null, oc: null, fairTarget: null, wi: { hours: {}, days: null, fuel: 0 }, pending: null,
-    insSeg: 'advice', citySeg: 'map', advAll: false, fullCalc: false, sheet: null, vehicleOk: false, tourDone: false, big: false
+    insSeg: 'advice', citySeg: 'map', advAll: false, fullCalc: false, sheet: null, vehicleOk: false, tourDone: false, big: false, shifts: [], shift: null, meas: null
   };
   const ui = { busy: false, msg: null, thumbs: null, open: new Set(), chat: [], ai: false, listening: false, thinking: false };
 
   /* ---------- persistence (best-effort; the app works without it) ---------- */
   const KEY = 'truewage.v3';
-  const PERSIST = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shared', 'rider', 'lang', 'demo', 'goal', 'vehicleOk', 'tourDone', 'big'];
+  const PERSIST = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shared', 'rider', 'lang', 'demo', 'goal', 'vehicleOk', 'tourDone', 'big', 'shifts', 'shift'];
   function save() { try { const o = {}; PERSIST.forEach(k => o[k] = S[k]); localStorage.setItem(KEY, JSON.stringify(o)); } catch (e) { /* private mode */ } }
   function load() {
     try {
@@ -48,7 +48,14 @@
     } catch (e) { /* ignore */ }
   }
   function toast(msg) { const el = $('#toast'); el.textContent = msg; el.hidden = false; clearTimeout(toast._t); toast._t = setTimeout(() => el.hidden = true, 4200); }
-  function recompute() { S.report = S.sessions.length ? T.analyze(S.sessions, S.profile) : null; save(); }
+  /* Effective inputs: tracked shifts fill in missing online time, and once 3 shifts are paired with screenshots the
+     GPS-measured unpaid-riding factor replaces our assumption. */
+  function effective() {
+    const sess = T.applyShifts(S.sessions, S.shifts), m = T.measuredDeadKm(S.sessions, S.shifts);
+    S.meas = m;
+    return { sess, prof: m.reliable ? Object.assign({}, S.profile, { deadKm: m.factor, deadMeasured: true }) : S.profile };
+  }
+  function recompute() { const e = effective(); S.report = S.sessions.length ? T.analyze(e.sess, e.prof) : null; save(); }
   const dLabel = (iso, o) => new Date(iso + 'T00:00:00').toLocaleDateString(LOC[S.lang], o);
   function anonId() { try { let id = localStorage.getItem('truewage.rid'); if (!id) { id = Array.from(crypto.getRandomValues(new Uint8Array(12))).map(b => b.toString(16).padStart(2, '0')).join(''); localStorage.setItem('truewage.rid', id); } return id; } catch (e) { return null; } }
   const resetWi = () => { S.wi = { hours: {}, days: null, fuel: 0 }; };
@@ -152,6 +159,7 @@
         <div><span class="n">2</span><div><h3>${t('step_2')}</h3><p>${t('st2_p')}</p></div></div>
         <div><span class="n">3</span><div><h3>${t('step_3')}</h3><p>${t('st3_p')}</p></div></div></div>`;
     $$('#lseg button', v).forEach(b => b.onclick = () => changeLang(b.dataset.l));
+    v.insertAdjacentHTML('beforeend', `<div style="margin-top:28px;max-width:560px">${shiftCardHTML(null)}</div>`); bindShift(v);
     $('#l-add', v).onclick = () => openSheet('import'); $('#l-demo', v).onclick = loadDemo;
   }
 
@@ -166,7 +174,7 @@
     return `<section class="next"><div class="eyebrow">${t('ns_h')}</div><p>${esc(text)}</p><div class="rows">${btns}</div><span hidden id="ns-text">${esc(text)}</span></section>`;
   }
   function accuracyHTML(rep) {
-    const sn = T.sensitivity(S.sessions, S.profile);
+    const sn = T.sensitivity(T.applyShifts(S.sessions, S.shifts), rep.profile);
     return `<details class="card acc"><summary><span>${t('acc_h')}</span><b class="num">${inr(sn.lo)}\u2013${inr(sn.hi)}/h</b></summary>
       <p style="margin-top:10px">${esc(t('acc_range', { lo: inr(sn.lo), hi: inr(sn.hi) }))}</p>
       <p class="note" style="margin-top:8px"><b>\u2713</b> ${t('acc_measured')}</p><p class="note" style="margin-top:4px"><b>\u2248</b> ${t('acc_assumed')}</p>
@@ -203,6 +211,7 @@
           ${nextStepHTML(rep, plan)}
           <div class="acts"><button class="btn lg" id="a-check">${t('n_check')}</button><button class="btn lg alt" id="a-add">${t('add_shots')}</button></div>
           ${tourHTML()}
+          ${shiftCardHTML(rep)}
           <div class="rows"><button class="btn sm alt" id="share">${ic('share')}${t('share_btn')}</button><button class="btn sm alt" id="spk-day">${ic('volume')}${t('speak')}</button></div>
           ${accuracyHTML(rep)}
           <div class="assume"><span>${t('assume_h')}: <b>${esc(vlabel)}</b> · ${inr(p.fuelPrice)} · ${p.mileage} km · EMI ${inr(p.fixedPerDay)}/${t('days').replace(/s$/, '')}</span><button class="link" id="a-costs">${t('change')}</button></div>
@@ -231,7 +240,7 @@
       else if (k === 'wi') { S.insSeg = 'wi'; setTab('insights'); }
       else setTab('proof');
     });
-    bindSpeak(v, advice);
+    bindSpeak(v, advice); bindShift(v);
     const sim = $('#sim', v); if (sim) sim.onchange = () => { S.simHour = sim.value === '' ? null : +sim.value; renderHome(); };
   }
 
@@ -368,6 +377,7 @@
         <section class="card"><h3 class="h3">${t('time_h')}</h3>
           ${stacked([{ l: t('time_ride'), v: tt.dur / 60, c: 'var(--kept)' }, { l: t('time_wait'), v: tt.wait / 60, c: 'var(--lost)' }])}
           <p class="note" style="margin-top:8px">${t('hours')}: ${t('time_ride')} ${rd(tt.dur / 60)} · ${t('time_wait')} ${rd(tt.wait / 60)}</p></section></div>
+      <section class="card" style="margin-top:20px"><h3 class="h3">${t('km_unpaid')}: ${rd(tt.deadKmAbs)} km \u00B7 ${inr(tt.deadCost)}</h3><p class="note" style="margin-top:6px">${S.meas && S.meas.reliable ? `<span class="pill">${t('sh_badge')}</span> ${esc(t('sh_measured', { f: S.meas.factor.toFixed(2), n: S.meas.pairs }))}` : esc(t('sh_assumed', { f: S.profile.deadKm }))}</p></section>
       <section class="card" style="margin-top:20px"><h3 class="h3" style="margin-bottom:12px">${t('costs_h')}</h3><div class="grid2" id="costs2">${costsHTML()}</div>
         <p class="note" style="margin-top:12px">Break-even per km: ${inr(rep.breakEvenPerKm)} (fuel + repairs, including unpaid riding). ${rd(rep.belowBEPct)}% of your orders paid less.</p></section>`;
     const c2 = $('#costs2', b); bindCosts(c2);
@@ -435,7 +445,7 @@
     const rep = S.report, mw = S.profile.minWage, out = $('#oc-out');
     if (!out) return;
     if (!(S.oc.km > 0)) { out.innerHTML = ''; return; }
-    const r = T.orderCheck(S.profile, { pay: S.oc.pay, km: S.oc.km, avgWait: rep ? rep.avgWaitPerOrder : 6, fixedPerHour: rep && rep.total.hours > 0 ? rep.total.fixed / rep.total.hours : undefined });
+    const r = T.orderCheck(rep ? rep.profile : S.profile, { pay: S.oc.pay, km: S.oc.km, avgWait: rep ? rep.avgWaitPerOrder : 6, fixedPerHour: rep && rep.total.hours > 0 ? rep.total.fixed / rep.total.hours : undefined });
     const msg = r.verdict === 'take' ? t('oc_msg_take', { net: rd(r.net), min: rd(r.effMin), hr: rd(r.perHr) }) : t('oc_msg_skip', { net: rd(r.net), hr: rd(r.perHr) });
     const pos = Math.max(2, Math.min(98, r.perHr / (mw * 2) * 100));
     out.innerHTML = `<div class="verdict ${r.verdict}" role="status" aria-live="polite">
@@ -621,6 +631,69 @@
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'truewage-receipt.png'; a.click(); toast('Receipt image saved');
   }
 
+  /* ---------- SHIFT TRACKER: the rider's own measured hours and distance ---------- */
+  const trk = { watch: null, timer: null, wake: null };
+  const pad2 = x => String(x).padStart(2, '0');
+  const fmtDur = ms => { const q = Math.max(0, Math.floor(ms / 1000)); return pad2(Math.floor(q / 3600)) + ':' + pad2(Math.floor(q % 3600 / 60)) + ':' + pad2(q % 60); };
+  const hm = min => Math.floor(min / 60) + ':' + pad2(Math.round(min % 60));
+  const localDate = ts => { const d = new Date(ts); return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); };
+  function tick() {
+    const a = $('#shift-t'); if (!S.shift || !a) return;
+    a.textContent = fmtDur(Date.now() - S.shift.start); $('#shift-km').textContent = (S.shift.km || 0).toFixed(2);
+    $('#shift-gps').textContent = S.shift.gps === 'off' ? t('sh_gps_off') : S.shift.gps === 'on' ? '' : t('sh_gps_wait');
+  }
+  function beginWatch() {
+    if (trk.watch !== null || !S.shift) return;
+    if (!navigator.geolocation) { S.shift.gps = 'off'; return; }
+    try {
+      trk.watch = navigator.geolocation.watchPosition(pos => {
+        if (!S.shift) return; const c = pos.coords;
+        S.shift = Object.assign(T.addFix(S.shift, { lat: c.latitude, lon: c.longitude, acc: c.accuracy, t: pos.timestamp || Date.now() }), { gps: 'on' }); save(); tick();
+      }, () => { if (S.shift) { S.shift.gps = 'off'; save(); tick(); } }, { enableHighAccuracy: true, maximumAge: 10000, timeout: 30000 });
+    } catch (e) { S.shift.gps = 'off'; }
+    try { if (navigator.wakeLock) navigator.wakeLock.request('screen').then(w => { trk.wake = w; }).catch(() => { /* optional */ }); } catch (e) { /* optional */ }
+  }
+  function stopWatch() {
+    if (trk.watch !== null && navigator.geolocation) navigator.geolocation.clearWatch(trk.watch);
+    trk.watch = null; clearInterval(trk.timer); trk.timer = null; try { if (trk.wake) trk.wake.release(); } catch (e) { /* ignore */ } trk.wake = null;
+  }
+  const startTicker = () => { clearInterval(trk.timer); trk.timer = setInterval(tick, 1000); };
+  function shiftStart(platform) {
+    if (S.shift) return;
+    S.shift = { start: Date.now(), platform: platform || 'Unknown', km: 0, last: null, gps: 'pending' }; save(); beginWatch(); startTicker(); rerender();
+  }
+  function shiftStop() {
+    if (!S.shift) return;
+    const sh = S.shift, end = Date.now(); stopWatch(); S.shift = null;
+    const onlineMin = Math.max(1, Math.round((end - sh.start) / 60000)), km = Math.round((sh.km || 0) * 100) / 100;
+    S.shifts.push({ id: 's' + sh.start, date: localDate(sh.start), platform: sh.platform, startTs: sh.start, endTs: end, onlineMin, km, gps: sh.gps === 'on' ? 'on' : 'off', source: 'tracked' });
+    S.shifts = S.shifts.slice(-400); recompute(); toast(t('sh_saved', { h: hm(onlineMin), km: km.toFixed(1) })); rerender();
+  }
+  function shiftCardHTML(rep) {
+    if (S.shift) {
+      return `<section class="card shift on"><div class="eyebrow">${t('sh_running')} · ${esc(S.shift.platform)}</div>
+        <div class="shift-big"><div><span class="num" id="shift-t">${fmtDur(Date.now() - S.shift.start)}</span><small>h : m : s</small></div><div><span class="num" id="shift-km">${(S.shift.km || 0).toFixed(2)}</span><small>${t('sh_km')}</small></div></div>
+        <p class="note" id="shift-gps">${S.shift.gps === 'off' ? esc(t('sh_gps_off')) : S.shift.gps === 'on' ? '' : esc(t('sh_gps_wait'))}</p><p class="note">${t('sh_keep')}</p>
+        <button class="btn lg block" id="shift-stop" style="margin-top:10px">${t('sh_stop')}</button></section>`;
+    }
+    const plats = Array.from(new Set(S.sessions.map(x => x.platform).concat(['Swiggy', 'Zomato', 'Rapido', 'Ola', 'Uber', 'Porter']))), last = S.sessions.length ? S.sessions[S.sessions.length - 1].platform : plats[0];
+    const real = S.shifts.filter(x => x.source !== 'demo'), all = S.shifts;
+    const hrs = all.reduce((a, x) => a + x.onlineMin, 0) / 60, kms = all.reduce((a, x) => a + x.km, 0);
+    const paired = new Set(T.pairShifts(S.sessions, S.shifts).map(x => x.shift));
+    const un = real.slice().reverse().find(x => !paired.has(x));
+    const m = S.meas;
+    return `<section class="card shift"><h3 class="h3">${t('sh_h')}</h3><p class="note" style="margin:4px 0 12px">${t('sh_hint')}</p>
+      <div class="rows" style="align-items:end"><div class="field" style="flex:1;min-width:150px"><label for="shift-plat">${t('sh_platform')}</label><select id="shift-plat">${plats.map(x => `<option ${x === last ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select></div>
+        <button class="btn lg" id="shift-start">${t('sh_start')}</button></div>
+      ${all.length ? `<p class="note" style="margin-top:12px">${esc(t('sh_summary', { n: all.length, h: Math.round(hrs * 10) / 10, km: Math.round(kms) }))}${S.demo ? ' · ' + esc(t('pr_label').split(':')[0]) : ''}</p>` : ''}
+      ${rep ? (m && m.reliable ? `<p class="note" style="margin-top:6px"><span class="pill">${t('sh_badge')}</span> ${esc(t('sh_measured', { f: m.factor.toFixed(2), n: m.pairs }))}</p>` : `<p class="note" style="margin-top:6px">${esc(t('sh_assumed', { f: S.profile.deadKm }))}</p>`) : ''}
+      ${un ? `<p class="note warn-n" style="margin-top:8px">${esc(t('sh_unmatched', { date: dLabel(un.date, { day: 'numeric', month: 'short' }), h: hm(un.onlineMin), km: un.km.toFixed(1) }))}</p><button class="btn sm alt" id="shift-add" style="margin-top:6px">${t('add_shots')}</button>` : ''}</section>`;
+  }
+  function bindShift(root) {
+    const on = (id, fn) => { const el = $(id, root); if (el) el.onclick = fn; };
+    on('#shift-start', () => shiftStart($('#shift-plat', root).value)); on('#shift-stop', shiftStop); on('#shift-add', () => openSheet('import'));
+  }
+
   /* ---------- ASK TRUEWAGE: voice or text question -> answer from the rider's own numbers ---------- */
   function askSummary() {
     const rep = S.report, r = T.dayReceipt(rep, 'period'), plan = T.planNow(rep, HOURS_NOW()), p = S.profile, R0 = n => Math.round(n);
@@ -632,13 +705,14 @@
       costs: { platformCuts: R0(r.deduction), fuel: R0(r.fuel), repairs: R0(r.maint), phoneData: R0(r.data), bikeEmi: R0(r.fixed), profitBeforeEmi: R0(r.op), unpaidRidingCost: R0(r.deadCost) },
       bestWindows: win.slice(0, 3), worstWindows: win.slice(-2).reverse(), platforms: rep.byPlatform.map(x => ({ name: x.key, realPerHour: R0(x.perHr) })),
       nowHour: plan.hour, nowState: plan.state, nextGoodWindow: plan.next ? { from: plan.next.start, to: plan.next.end || 24, area: plan.next.zone, platform: plan.next.platform, realPerHour: R0(plan.next.perHr) } : null,
+      tracked: { shifts: S.shifts.length, hours: R0(S.shifts.reduce((a, x) => a + x.onlineMin, 0) / 60), km: R0(S.shifts.reduce((a, x) => a + x.km, 0)), unpaidRidingFactor: Math.round(rep.profile.deadKm * 100) / 100, unpaidRidingMeasuredByGps: !!(S.meas && S.meas.reliable) },
       fairWagePerHour: p.minWage, assumptions: { vehicle: p.vehicle, fuelPricePerUnit: p.fuelPrice, kmPerUnit: p.mileage, emiPerDay: p.fixedPerDay, unpaidKmFactor: p.deadKm }
     };
   }
   function offlineAnswer(det) {
     const rep = S.report;
     if (det.intent === 'order') {
-      const r = T.orderCheck(S.profile, { pay: det.pay, km: det.km, avgWait: rep ? rep.avgWaitPerOrder : 6, fixedPerHour: rep && rep.total.hours > 0 ? rep.total.fixed / rep.total.hours : undefined });
+      const r = T.orderCheck(rep ? rep.profile : S.profile, { pay: det.pay, km: det.km, avgWait: rep ? rep.avgWaitPerOrder : 6, fixedPerHour: rep && rep.total.hours > 0 ? rep.total.fixed / rep.total.hours : undefined });
       const msg = r.verdict === 'take' ? t('oc_msg_take', { net: rd(r.net), min: rd(r.effMin), hr: rd(r.perHr) }) : t('oc_msg_skip', { net: rd(r.net), hr: rd(r.perHr) });
       return `${inr(det.pay)} \u00B7 ${det.km} km: ${t('oc_' + r.verdict)}. ${msg}${r.verdict !== 'take' ? ' ' + t('oc_need', { mw: S.profile.minWage, need: rd(r.need) }) : ''}`;
     }
@@ -646,6 +720,7 @@
     const find = key => rep.insights.find(i => i.key === key);
     const plan = T.planNow(rep, HOURS_NOW()), r = T.dayReceipt(rep, 'period');
     switch (det.intent) {
+      case 'hours': { const tt = rep.total, m = S.meas; return `${rd(tt.hours)} ${t('hrs_online')} \u00B7 ${rd(tt.km)} ${t('km_paid')} \u00B7 ${rd(tt.deadKmAbs)} ${t('km_unpaid')}. ` + (m && m.reliable ? t('sh_measured', { f: m.factor.toFixed(2), n: m.pairs }) : t('sh_assumed', { f: S.profile.deadKm })); }
       case 'income': case 'hourly': return t('h_sum', { app: inr(r.appShown), kept: inr(r.net), real: inr(r.perHr), appHr: inr(r.appPerHr) });
       case 'best': { const b = find('best'); if (!b) return t('ask_none'); let out = adviceText(b); if (plan.state !== 'good' && plan.next) out += ' ' + t('ns_go', { start: plan.next.start, end: plan.next.end || 24, zone: plan.next.zone, platform: plan.next.platform, rate: inr(plan.next.perHr) }); return out; }
       case 'worst': { const w = rep.insights.filter(i => i.key === 'skip'); return w.length ? w.map(adviceText).join(' ') : t('ask_none'); }
@@ -712,7 +787,7 @@
     if (S.sheet === 'costs') costsSheet(b); else if (S.sheet === 'data') dataSheet(b); else if (S.sheet === 'ask') askSheet(b); else importSheet(b);
   }
   function costsSheet(b) {
-    b.innerHTML = `<div class="grid2">${costsHTML()}</div><p class="note" style="margin-top:10px">${t('cal_help')}</p><div class="center"><button class="btn lg" id="c-done">${t('done')}</button></div>`;
+    b.innerHTML = `<div class="grid2">${costsHTML()}</div><p class="note" style="margin-top:10px">${t('cal_help')}</p>${S.meas && S.meas.reliable ? `<p class="note" style="margin-top:8px"><span class="pill">${t('sh_badge')}</span> ${esc(t('sh_measured', { f: S.meas.factor.toFixed(2), n: S.meas.pairs }))}</p>` : ''}<div class="center"><button class="btn lg" id="c-done">${t('done')}</button></div>`;
     bindCosts(b); $('#c-done', b).onclick = closeSheet;
   }
   function dataSheet(b) {
@@ -820,7 +895,7 @@
   }
 
   function exportData() {
-    const blob = new Blob([JSON.stringify({ app: 'truewage', version: 3, exported: new Date().toISOString(), profile: S.profile, sessions: S.sessions, hashes: S.hashes }, null, 1)], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify({ app: 'truewage', version: 3, exported: new Date().toISOString(), profile: S.profile, sessions: S.sessions, shifts: S.shifts, hashes: S.hashes }, null, 1)], { type: 'application/json' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'truewage-backup.json'; a.click();
   }
   function validBackup(j) {
@@ -832,13 +907,14 @@
       if (file.size > 8e6) throw new Error('too large');
       const j = JSON.parse(await file.text());
       if (!validBackup(j)) throw new Error('invalid');
+      S.shifts = Array.isArray(j.shifts) ? j.shifts.filter(x => x && /^\d{4}-\d{2}-\d{2}$/.test(x.date) && isFinite(x.onlineMin) && isFinite(x.km) && x.onlineMin >= 0 && x.km >= 0).slice(0, 400) : [];
       S.sessions = j.sessions; S.hashes = Array.isArray(j.hashes) ? j.hashes.filter(h => /^[0-9a-f]{64}$/.test(h)) : []; if (j.profile && typeof j.profile === 'object') S.profile = Object.assign(T.defaultProfile(), j.profile);
       S.demo = j.sessions.every(s => s.source === 'demo'); S.pending = null; S.day = null; recompute(); if (S.sheet) renderSheet(); rerender(); toast(t('imp_records', { s: S.sessions.length, n: S.sessions.reduce((a, s) => a + s.orders.length, 0) }));
     } catch (e) { toast(t('data_bad')); }
   }
   function deleteAll() {
     if (!confirm(t('data_confirm'))) return;
-    const lang = S.lang; S.sessions = []; S.hashes = []; S.report = null; S.demo = false; S.pending = null; S.lastBatch = []; S.shared = false; S.day = null; S.oc = null; resetWi(); S.profile = T.defaultProfile('petrol'); S.rider = { name: '', phone4: '' }; S.lang = lang;
+    const lang = S.lang; S.sessions = []; S.hashes = []; S.report = null; S.demo = false; S.pending = null; S.lastBatch = []; S.shared = false; S.day = null; S.oc = null; resetWi(); S.profile = T.defaultProfile('petrol'); S.rider = { name: '', phone4: '' }; S.lang = lang; stopWatch(); S.shift = null; S.shifts = [];
     try { localStorage.removeItem(KEY); localStorage.removeItem('truewage.rid'); } catch (e) { /* ignore */ }
     save(); ui.thumbs = null; ui.msg = null; closeSheet(); setTab('home'); toast(t('data_deleted'));
   }
@@ -891,7 +967,7 @@
     S.sessions = D.demoSessions();
     S.profile = Object.assign(T.defaultProfile('petrol'), D.DEMO_PROFILE);
     S.hashes = await Promise.all(S.sessions.map(s => R.sha256Text(JSON.stringify(s))));
-    S.reader = 'demo'; S.demo = true; S.lastBatch = []; S.pending = null;
+    S.reader = 'demo'; S.demo = true; S.lastBatch = []; S.pending = null; stopWatch(); S.shift = null; S.shifts = D.demoShifts(S.sessions, 0.45);
     S.rider = { name: 'Ravi Kumar (demo)', phone4: '4821' }; S.day = null; S.oc = null; resetWi();
     recompute(); if (S.sheet) closeSheet(); setTab('home');
   }
@@ -919,8 +995,9 @@
     if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) navigator.serviceWorker.register('/sw.js').catch(() => { /* offline mode is optional */ });
     if ('speechSynthesis' in window) speechSynthesis.getVoices();
     window.addEventListener('hashchange', () => { if (location.hash.startsWith('#verify=')) setTab('proof'); });
+    if (S.shift) { beginWatch(); startTicker(); }
     setTab(location.hash.startsWith('#verify=') ? 'proof' : 'home');
-    window.TWApp = { S, ui, loadDemo, setTab, openSheet, closeSheet, handleFiles, trySamples, sendAsk, offlineAnswer, askSummary };
+    window.TWApp = { shiftStart, shiftStop, S, ui, loadDemo, setTab, openSheet, closeSheet, handleFiles, trySamples, sendAsk, offlineAnswer, askSummary };
   }
   init();
 })();

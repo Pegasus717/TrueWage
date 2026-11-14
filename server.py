@@ -294,7 +294,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("X-Frame-Options", "DENY")
-        self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        self.send_header("Permissions-Policy", "camera=(), microphone=(self), geolocation=(self)")
         super().end_headers()
 
     def _send(self, code, data, ctype, cache="no-store"):

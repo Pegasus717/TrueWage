@@ -171,3 +171,48 @@ assert.strictEqual(I('என் வருமானம் எவ்வளவு?'
 assert.strictEqual(I('blah blah').intent, 'help');
 assert.strictEqual(I('').intent, 'help');
 console.log('v5 OK  range', Math.round(sens.lo), '-', Math.round(sens.hi), 'base', Math.round(sens.base.perHr), 'calibrated', Math.round(sensCal.lo), '-', Math.round(sensCal.hi));
+
+// ---------- v6: shift tracking (hours + distance) ----------
+// GPS distance accumulator
+const P0 = { lat: 17.4400, lon: 78.3489, acc: 10, t: 0 };
+assert(Math.abs(TW.haversine(P0, { lat: 17.4400 + 0.009, lon: 78.3489 }) - 1000) < 5, '0.009 deg lat ~ 1 km');
+let sh = TW.addFix({}, P0);
+sh = TW.addFix(sh, { lat: 17.4400 + 0.0045, lon: 78.3489, acc: 10, t: 120000 });   // 500 m in 2 min
+sh = TW.addFix(sh, { lat: 17.4400 + 0.0045 + 0.00005, lon: 78.3489, acc: 10, t: 130000 }); // 5.5 m jitter: ignored
+assert(Math.abs(sh.km - 0.5) < 0.01, 'real movement counted, jitter ignored: ' + sh.km);
+const km1 = sh.km;
+sh = TW.addFix(sh, { lat: 18.5, lon: 78.3489, acc: 10, t: 140000 });               // 118 km in 10 s: glitch
+assert(sh.km === km1, 'teleport adds nothing');
+sh = TW.addFix(sh, { lat: 18.5 + 0.0045, lon: 78.3489, acc: 10, t: 260000 });       // anchor moved past glitch: next real leg counts
+assert(Math.abs(sh.km - (km1 + 0.5)) < 0.01, 'tracking resumes after a glitch: ' + sh.km);
+const before = sh.km; sh = TW.addFix(sh, { lat: 18.6, lon: 78.3489, acc: 200, t: 400000 });
+assert(sh.km === before, 'poor accuracy fix ignored');
+let slow = TW.addFix({}, P0);
+for (let i = 1; i <= 20; i++) slow = TW.addFix(slow, { lat: 17.4400 + i * 0.00006, lon: 78.3489, acc: 5, t: i * 30000 }); // 6.7 m steps, 133 m total
+assert(slow.km > 0.1, 'slow riding accumulates despite per-step jitter filter: ' + slow.km);
+assert(!('route' in sh) && !('points' in sh), 'only totals are kept, never a route');
+// pairing, filling online time, measured unpaid km
+const dShifts = D.demoShifts(sessions, 0.45);
+assert.strictEqual(dShifts.length, sessions.length);
+const m = TW.measuredDeadKm(sessions, dShifts);
+assert(m.reliable && Math.abs(m.factor - 0.45) < 1e-4, 'demo shifts measure 0.45: ' + m.factor);
+const measRep = TW.analyze(sessions, Object.assign({}, demoProfile, { deadKm: m.factor, deadMeasured: true }));
+assert(Math.abs(measRep.total.perHr - rep.total.perHr) < 0.01, 'demo numbers unchanged when measured = assumed');
+const real = TW.measuredDeadKm(sessions, dShifts.map(x => Object.assign({}, x, { km: x.km * 0.9 })));   // rider actually rode less unpaid distance
+assert(real.factor < 0.45 && TW.analyze(sessions, Object.assign({}, demoProfile, { deadKm: real.factor })).total.perHr > rep.total.perHr, 'less measured unpaid riding => higher real pay');
+assert(!TW.measuredDeadKm(sessions, dShifts.slice(0, 2)).reliable, 'two shifts are not enough to override the assumption');
+assert(!TW.measuredDeadKm(sessions, dShifts.map(x => Object.assign({}, x, { km: 1 }))).reliable, 'implausibly short tracks (< 80% of paid km) are ignored');
+const noOnline = sessions.slice(0, 2).map(x => Object.assign({}, x, { onlineMin: 0 }));
+const filled = TW.applyShifts(noOnline, [{ date: noOnline[0].date, platform: noOnline[0].platform, onlineMin: 200, km: 40 }]);
+assert.strictEqual(filled[0].onlineMin, 200); assert.strictEqual(filled[1].onlineMin, 0);
+const kept = TW.applyShifts(sessions.slice(0, 1), [{ date: sessions[0].date, platform: sessions[0].platform, onlineMin: 9999, km: 40 }]);
+assert.strictEqual(kept[0].onlineMin, sessions[0].onlineMin, 'screenshot online time wins over tracked time');
+assert.strictEqual(TW.pairShifts(sessions, [{ date: '1999-01-01', platform: 'Zomato', km: 5 }]).length, 0, 'unmatched shift pairs with nothing');
+assert(TW.sensitivity(sessions, Object.assign({}, demoProfile, { deadMeasured: true })).hi - TW.sensitivity(sessions, Object.assign({}, demoProfile, { deadMeasured: true })).lo < TW.sensitivity(sessions, demoProfile).hi - TW.sensitivity(sessions, demoProfile).lo, 'measured unpaid riding narrows the accuracy range');
+console.log('v6 OK  measured factor', m.factor.toFixed(3), 'pairs', m.pairs);
+
+// Ask: distance / hours intent
+assert.strictEqual(Ask.detect('How many hours did I work and how far did I ride?').intent, 'hours');
+assert.strictEqual(Ask.detect('\u0915\u093f\u0924\u0928\u0940 \u0926\u0942\u0930\u0940 \u091a\u0932\u093e?').intent, 'hours');
+assert.strictEqual(Ask.detect('What is my pay per hour').intent, 'hourly');
+console.log('ask hours OK');
