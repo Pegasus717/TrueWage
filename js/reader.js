@@ -114,7 +114,7 @@
       .replace(/â‚¹|₨/g, '₹')
       .replace(/(?<=\d)[Oo](?=[\d.,:])|(?<=[\d.,:])[Oo](?=\d)/g, '0')
       .replace(/(?<=\d)[lI|](?=[\d.,:])|(?<=[:.,])[lI|](?=\d)/g, '1')
-      .replace(/(?<![A-Za-z0-9])[?%¥€£$](?=\s?\d[\d,]*(?:\.\d+)?\b)/g, '₹')
+      .replace(/(?<![A-Za-z0-9])[?%¥€£$Zz](?=\s?\d[\d,]*(?:\.\d+)?\b)/g, '₹')
       .replace(/[ \t]+/g, ' ');
   }
   const CUR = /(?:₹|Rs\.?|INR)\s*/i;
@@ -134,10 +134,10 @@
     }
     return null;
   }
+  const firstZone = line => { let best = null, at = 1e9; KNOWN_ZONES.forEach(z => { const m = new RegExp(z.slice(0, 7), 'i').exec(line); if (m && m.index < at) { at = m.index; best = z; } }); return best; };
   const money = str => +String(str).replace(/,/g, '');
 
-  function parseText(rawText, hint) {
-    const text = cleanOcr(rawText);
+  function parseCore(text, hint) {
     const platform = (KNOWN_PLATFORMS.find(p => new RegExp('\\b' + p + '\\b', 'i').test(text)) || (hint && hint.platform) || 'Unknown');
     const MON = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
     const iso = (y, m, d) => (y < 100 ? 2000 + y : y) + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
@@ -166,12 +166,18 @@
       if (bm) { const sym = /(?:₹|Rs\.?|INR)/i.test(line); bonusRaw.push({ raw: bm[2], sym }); bonus += money(bm[2]); return; }
       if (/\b(total|earnings?|today|this week|weekly|summary|payout|balance|wallet|lifetime)\b/i.test(line) && !findTime(line)) return; // totals lines are not orders
       let time = findTime(line), guessed = false;
+      if (/\b(online|logged\s*in|login|duty|active)\b/i.test(line) && !/\d\s*km/i.test(line)) return;
       const kmM = /(\d+(?:\.\d+)?)\s*(?:km|kms|kilomet\w*)\b/i.exec(line);
       let work = line;
       if (time) work = work.replace(/\d{1,2}[:.]\d{2}\s*(?:am|pm)?/i, ' ');
       if (kmM) work = work.replace(kmM[0], ' ');
       const amounts = [];
       work.replace(/(?:₹|Rs\.?|INR)\s*(-?\s*[\d,]+(?:\.\d+)?)/gi, (m, a, off) => { amounts.push({ v: Math.abs(money(a.replace(/\s/g, ''))), raw: '', sym: true, neg: /-/.test(a) || /-\s*$/.test(work.slice(Math.max(0, off - 2), off)) }); return m; });
+      if (amounts.length && (time || kmM)) { // bare "38.00" tokens whose rupee sign was dropped, merged in line order
+        const all = [];
+        work.replace(/(?:(?:₹|Rs\.?|INR)\s*(-?\s*[\d,]+(?:\.\d+)?))|(?<![\w.#])(\d{1,4}\.\d{2})(?![\w.])/gi, (m, sy, bare, off) => { if (sy) all.push({ off, v: Math.abs(money(sy.replace(/\s/g, ''))), raw: '', sym: true, neg: /-/.test(sy) || /-\s*$/.test(work.slice(Math.max(0, off - 2), off)) }); else if (+bare >= 5 && +bare <= 3000) all.push({ off, v: +bare, raw: bare, sym: false, neg: false }); return m; });
+        if (all.length > amounts.length) { amounts.length = 0; all.forEach(a => amounts.push(a)); }
+      }
       if (!amounts.length && (time || kmM)) { // rupee sign lost by OCR: any plausible standalone numbers left on an order-looking line
         work.replace(/(?<![\w.])(\d{1,4}(?:\.\d{1,2})?)(?![\w.])/g, (m, a) => { const v = +a; if (v >= 5 && v <= 3000) amounts.push({ v, raw: a, sym: false, neg: false }); return m; });
       }
@@ -180,10 +186,10 @@
         else { if (kmM && !amounts.length) unread++; return; }
       } else lastTime = time;
       if (!amounts.length) { if (kmM || /₹|rs\b/i.test(line) || line.replace(/\D/g, '').length >= 4) unread++; return; }
-      const zone = KNOWN_ZONES.find(z => new RegExp(z.slice(0, 7), 'i').test(line)) || (hint && hint.zone) || 'Unknown';
+      const zone = firstZone(line) || (hint && hint.zone) || 'Unknown'; // the pickup area is the one named first
       const km = kmM ? +kmM[1] : 0;
       const fix = a => { // "264.00" for "₹64.00": only when the rider could not have been paid that per km
-        if (a.sym || !km || !/^2\d{2,3}(\.\d+)?$/.test(a.raw || '')) return a.v;
+        if (a.sym || !km || !/^[27]\d{2,3}(\.\d+)?$/.test(a.raw || '')) return a.v;
         const c = +a.raw.slice(1);
         if (a.v / km > 45 && c >= 10 && c / km <= 45) { fixedAmounts++; return c; }
         return a.v;
@@ -194,7 +200,7 @@
       if (guessed) guessedHours++;
       orders.push(o);
     });
-    if (fixedAmounts) bonusRaw.forEach(b => { if (!b.sym && /^2\d{2}$/.test(b.raw)) { bonus += +b.raw.slice(1) - +b.raw; fixedAmounts++; } });
+    if (fixedAmounts) bonusRaw.forEach(b => { if (!b.sym && /^[27]\d{2}$/.test(b.raw)) { bonus += +b.raw.slice(1) - +b.raw; fixedAmounts++; } });
     let summary = false;
     if (!orders.length) { // a totals-only screen ("Today's earnings Rs 1,234 · 12 trips · 8 h online")
       const tot = [];
@@ -202,7 +208,7 @@
       if (!tot.length) text.replace(/(?:₹|Rs\.?|INR)\s*([\d,]{2,7}(?:\.\d+)?)/gi, (m, a) => { const v = money(a); if (v >= 50 && v <= 30000) tot.push(v); return m; });
       if (tot.length) {
         const total = Math.max.apply(null, tot);
-        const tm = /(\d{1,3})\s*(?:trips?|orders?|deliver(?:y|ies)|rides?|jobs?|tasks?)\b/i.exec(text) || /(?:trips?|orders?|deliver(?:y|ies)|rides?|jobs?|tasks?)\D{0,6}(\d{1,3})\b/i.exec(text);
+        const tm = /\b(\d{1,3})[ \t]*(?:trips?|orders?|deliver(?:y|ies)|rides?|jobs?|tasks?)\b/i.exec(text) || /\b(?:total\s+)?(?:trips?|orders?|deliver(?:y|ies)|rides?)\s*[:\-]\s*(\d{1,3})\b/i.exec(text);
         const n = Math.min(80, Math.max(1, tm ? +tm[1] : 1));
         const kms = []; text.replace(/(\d+(?:\.\d+)?)\s*(?:km|kms)\b/gi, (m, a) => { kms.push(+a); return m; });
         const tkm = kms.length ? Math.max.apply(null, kms) : 0;
@@ -212,6 +218,32 @@
       }
     }
     return { id: 'ocr-' + Math.random().toString(36).slice(2, 7), date, platform, onlineMin, bonus, orders, unread, guessedHours, summary, fixedAmounts, source: 'ocr' };
+  }
+
+  /** Card-style screens put one order over several lines (id / time / distance / amount). Glue each card into one line:
+   *  a card starts at a line holding a clock time and ends before the next one (or before a totals line). */
+  function mergeBlocks(text) {
+    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean), out = [];
+    const header = /\b(online|logged|login|duty|active|updated|as of|last sync)\b/i, stop = /\b(total|wallet|balance|weekly|this week|lifetime|summary|payout summary)\b/i;
+    let cur = null;
+    lines.forEach(l => {
+      const isStart = findTime(l) && !header.test(l);
+      if (stop.test(l) && !findTime(l)) { if (cur) out.push(cur); cur = null; out.push(l); return; }
+      if (isStart) { if (cur) out.push(cur); cur = l; return; }
+      if (cur && !/^(order\s*#?\s*\d+|ride\s*\d+|trip\s*\d+)$/i.test(l) && !/\b(bonus|incentive|surge|target|peak)\b/i.test(l) || (cur && /\b(incentive)\b/i.test(l) && !/total/i.test(l))) cur += ' ' + l;
+      else { if (cur) out.push(cur); cur = null; out.push(l); }
+    });
+    if (cur) out.push(cur);
+    return out.join('\n');
+  }
+
+  function parseText(rawText, hint) {
+    const text = cleanOcr(rawText);
+    const a = parseCore(text, hint);
+    const b = parseCore(mergeBlocks(text), hint);                  // card-per-order layout
+    // prefer the reading that finds more orders with fewer guessed hours and unreadable lines
+    const q = r => (r.summary ? 0 : r.orders.length * 10) - r.guessedHours * 6 - r.unread * 4 - (r.summary ? 15 : 0);
+    return q(b) > q(a) ? b : a;
   }
 
   const score = r => r.orders.length * 10 - r.unread * 2 - (r.summary ? 5 : 0) + (r.onlineMin ? 3 : 0) + (r.date ? 0 : -1);

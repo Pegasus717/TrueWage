@@ -292,3 +292,26 @@ console.log('v7 OK  plan', plan.segments.map(g => g.start + '-' + g.end + ' ' + 
   const ok = Rd.parseText('Zomato\n12:00 Madhapur 8.0 km ₹264\n'); assert.strictEqual(ok.orders[0].pay, 264, 'a plausible high fare is left alone');
   console.log('v11 OK  rupee-as-digit correction');
 }
+
+// ---- v12: card-style screens (one order over several lines) ----
+{
+  const card = 'Zomato Delivery Partner\nEarnings history\nFri, 13 Nov 2026\nOnline 7h 5m\nOrder #4821\n12:10 PM · Delivered\nDistance 3.2 km\n₹52.00\nOrder #4830\n12:48 PM · Delivered\nDistance 1.8 km\nOrder payout ₹38.00\nIncentive ₹10.00\nOrder #4851\n01:35 PM · Delivered\n4.5 km\n₹64.00\nTotal earnings ₹164.00';
+  const a = Rd.parseText(card);
+  assert.strictEqual(a.orders.length, 3); assert.deepStrictEqual(a.orders.map(o => o.pay), [52, 38, 64]); assert.strictEqual(a.orders[1].incentive, 10); assert.strictEqual(a.onlineMin, 425);
+  assert.deepStrictEqual(a.orders.map(o => o.km), [3.2, 1.8, 4.5]);
+  const b = Rd.parseText('Rapido Captain\n13/11/2026\nRide 1\n12:10 PM Madhapur to Kondapur\n3.2 km Cash\n₹52\nRide 2\n01:05 PM Uppal to Secunderabad\n6.1 km UPI\n₹88');
+  assert.strictEqual(b.orders.length, 2); assert.strictEqual(b.orders[1].zone, 'Uppal'); assert.strictEqual(b.orders[1].pay, 88); assert.ok(!b.summary);
+  console.log('v12 OK  card layouts');
+}
+
+// ---- v13: output captured from real in-browser OCR of generated Zomato/Rapido style screens ----
+{
+  const z = 'Zomato Delivery Partner\nEarnings - Fri, 13 Nov 2026\nOnline 7h 5m\nOrder #4821 Delivered\n12:10 PM\nDistance 3.2 km\nOrder payout ¥52.00\nOrder #4830 Delivered\n12:48 PM\nDistance 1.8 km\nOrder payout 38.00\nIncentive ~~ +¥10.00\nOrder #4851 Delivered\n01:35 PM\nDistance 4.5 km\nOrder payout ¥64.00\nTotal earnings ¥278\n';
+  const a = Rd.parseText(z);
+  assert.deepStrictEqual(a.orders.map(o => [o.pay, o.incentive]), [[52, 0], [38, 10], [64, 0]]); assert.strictEqual(a.onlineMin, 425);
+  const r = 'Rapido Captain\n13/11/2026 - Login hours 5:40\nRide 1 09:30 AM\nUppal to Secunderabad 6.1 km 788\nRide 2 10:25 AM\nUppal to Dilsukhnagar 4.4 Km Z64\nRide 3 12:05 PM\nMadhapur to Kondapur 3.2 km 52\nRide 4 06:40 PM\nGachibowli to Madhapur 5.0 km Z79\nTotal earnings ¥283\n';
+  const b = Rd.parseText(r);
+  assert.deepStrictEqual(b.orders.map(o => o.pay), [88, 64, 52, 79], JSON.stringify(b.orders.map(o => o.pay))); assert.strictEqual(b.onlineMin, 340); assert.strictEqual(b.fixedAmounts, 1);
+  assert.strictEqual(b.orders[1].zone, 'Uppal');
+  console.log('v13 OK  real OCR output of card/table screens');
+}
