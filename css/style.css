@@ -346,3 +346,22 @@ a.link,button.link{color:var(--ink);font-weight:700}
   main{padding-bottom:96px}
   .shift:not(.on)>p.note:first-of-type{display:none}
 }
+/* v10: on phones put what a rider acts on first, and the setup/explanation cards last */
+@media(max-width:899px){
+  #view-home .cols.lead,.view.on .cols.lead{display:flex;flex-direction:column;gap:16px}
+  .cols.lead>.stack{display:contents}
+  .cols.lead .stack>*+*{margin-top:0}
+  .cols.lead .kept-card{order:1}
+  .cols.lead .rows:has(#share){order:2}
+  .cols.lead .next{order:3}
+  .cols.lead .acts{order:4}
+  .cols.lead .o-adv{order:5}
+  .cols.lead .o-where{order:6}
+  .cols.lead .acc{order:7}
+  .cols.lead .o-plan{order:8}
+  .cols.lead .o-now{order:9}
+  .cols.lead .shift{order:10}
+  .cols.lead .o-week{order:11}
+  .cols.lead .tour{order:12}
+  .cols.lead .assume{order:13}
+}

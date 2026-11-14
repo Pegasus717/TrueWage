@@ -53,4 +53,4 @@ No one can guarantee a win. What follows is what we can control: a problem judge
 * GPS tracking was verified with simulated fixes; offline install and voice input could not be tested in the development browser.
 * Docker and Vultr deployment are documented but were not executed.
 * Accounts: no SMS/email verification or password recovery; tested locally and by automated tests, not under load or on a real deployment.
-* On-device OCR is verified on the bundled sample screenshots only.
+* On-device OCR is verified on the bundled samples and on generated screenshots of several styles (dark theme, low resolution, no ₹ sign, totals-only), not on real partner-app screenshots. Test yours before the demo; the review step catches the rest.

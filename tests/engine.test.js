@@ -266,3 +266,29 @@ console.log('v7 OK  plan', plan.segments.map(g => g.start + '-' + g.end + ' ' + 
   const d = Rd.parseText('99/99/2026 nothing useful'); assert.strictEqual(d.orders.length, 0);
   console.log('v9 OK  reader layouts');
 }
+
+// ---- v10: noisy OCR, lost rupee signs, totals-only screens ----
+{
+  const a = Rd.parseText('Zomato\n13/11/2026\nOnline 7 hrs 10 mins\nl2:10 Madhapur 3.2 km ?52\nI3:05 Kondapur 2.0 km %41\n14.30 Gachibowli 4.5 km ₹60.50 - ₹5');
+  assert.strictEqual(a.orders.length, 3, 'OCR confusions fixed'); assert.strictEqual(a.orders[0].pay, 52); assert.strictEqual(a.orders[1].pay, 41);
+  assert.ok(Math.abs(a.orders[2].hour - 14.5) < 1e-9); assert.strictEqual(a.orders[2].deduction, 5); assert.strictEqual(a.onlineMin, 430);
+  const b = Rd.parseText('Swiggy\n12 Nov\n19:10 Uppal 3.0 km 55\n20:05 Uppal 2.2 km 48 12');
+  assert.strictEqual(b.orders.length, 2, 'rupee sign lost'); assert.strictEqual(b.orders[1].incentive, 12);
+  const c = Rd.parseText('Rapido Captain\nToday 13 Nov\nToday\'s earnings Rs 1,240\n14 trips\nOnline 6h 30m\nDistance 72 km');
+  assert.ok(c.summary && c.orders.length === 14, 'totals-only screen becomes a flagged summary'); assert.strictEqual(Math.round(c.orders.reduce((x, o) => x + o.pay, 0)), 1240);
+  assert.strictEqual(c.guessedHours, 14); assert.strictEqual(c.onlineMin, 390);
+  const d = Rd.parseText('Wallet balance ₹ 2,300\nTotal earnings ₹ 9,000\n12:10 Madhapur 3.2 km ₹52'); assert.strictEqual(d.orders.length, 1); assert.ok(!d.summary);
+  const e = Rd.parseText('lorem ipsum nothing here'); assert.strictEqual(e.orders.length, 0);
+  console.log('v10 OK  noisy OCR, summary screens');
+}
+
+// ---- v11: the rupee sign read as a digit (the most common real OCR failure) ----
+{
+  const txt = 'Swiggy Delivery Partner\n13 Nov 2026\nLogged in 6 hrs 40 mins\n12:10 PM Order #4821 3.2km 52.00\n12:48 PM Order #4830 1.8 km ¥38.00 +%10.00\n01:35 PM Order #4851 4.5km 264.00\n02:20 PM Order #4866 2.4 km 241.00\n07:15 PM Order #4902 3.9 km %58.00 +%15.00\nPeak hour bonus 260\n';
+  const r = Rd.parseText(txt);
+  assert.strictEqual(r.orders.length, 5); assert.deepStrictEqual(r.orders.map(o => o.pay), [52, 38, 64, 41, 58]);
+  assert.strictEqual(r.orders[1].incentive, 10); assert.strictEqual(r.orders[4].incentive, 15); assert.strictEqual(r.bonus, 60);
+  assert.strictEqual(r.fixedAmounts, 3, 'three amounts were corrected and will be flagged');
+  const ok = Rd.parseText('Zomato\n12:00 Madhapur 8.0 km ₹264\n'); assert.strictEqual(ok.orders[0].pay, 264, 'a plausible high fare is left alone');
+  console.log('v11 OK  rupee-as-digit correction');
+}

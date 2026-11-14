@@ -245,9 +245,9 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
           <div class="assume"><span>${t('assume_h')}: <b>${esc(vlabel)}</b> · ${inr(p.fuelPrice)} · ${p.mileage} km · EMI ${inr(p.fixedPerDay)}/${t('days').replace(/s$/, '')}</span><button class="link" id="a-costs">${t('change')}</button></div>
         </div>
         <div class="stack">
-          <section class="card"><div class="rows between" style="margin-bottom:4px"><h3 class="h3">${t('where_went')}</h3><button class="link" id="a-full">${S.fullCalc ? t('imp_hide') : t('full_calc')}</button></div>
+          <section class="card o-where"><div class="rows between" style="margin-bottom:4px"><h3 class="h3">${t('where_went')}</h3><button class="link" id="a-full">${S.fullCalc ? t('imp_hide') : t('full_calc')}</button></div>
             ${ledgerHTML(r, S.fullCalc)}${S.fullCalc ? `<p class="note" style="margin-top:10px">${t('op_note')}</p>` : ''}</section>
-          ${advice.length ? `<section class="card"><div class="rows between"><h3 class="h3">${t('advice_h')}</h3><button class="link" id="to-ins">${t('more_advice')}</button></div>${adviceRows(advice)}</section>` : ''}
+          ${advice.length ? `<section class="card o-adv"><div class="rows between"><h3 class="h3">${t('advice_h')}</h3><button class="link" id="to-ins">${t('more_advice')}</button></div>${adviceRows(advice)}</section>` : ''}
           ${planCard(rep, plan)}
           ${planDayCard(rep)}
           ${weekCardHTML(rep)}
@@ -286,7 +286,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     else if (plan.state === 'poor') msg = nx ? t('plan_poor', Object.assign({ rate: rd(plan.now.perHr) }, nx)) : t('plan_nodata');
     else msg = t('plan_nodata') + (nx ? ' → ' + nx.start + ':00–' + nx.end + ':00 · ' + nx.zone + ' · ' + nx.platform + ' (' + inr(nx.rate2) + '/h)' : '');
     const opts = [['', t('w_live')], [8, '08:00'], [13, '13:00'], [19, '19:00'], [22, '22:00']].map(([v, l]) => `<option value="${v}" ${String(S.simHour == null ? '' : S.simHour) === String(v) ? 'selected' : ''}>${l}</option>`).join('');
-    return `<section class="card"><div class="rows between"><h3 class="h3">${t('plan_h')} · ${String(cur).padStart(2, '0')}:00</h3>
+    return `<section class="card o-now"><div class="rows between"><h3 class="h3">${t('plan_h')} · ${String(cur).padStart(2, '0')}:00</h3>
       <select id="sim" class="sel" aria-label="${t('plan_sim')}">${opts}</select></div>
       ${plan.state === 'nodata' ? '' : `<div style="margin-top:8px"><span class="state ${plan.state}"><i></i>${plan.state === 'good' ? t('oc_take') : t('oc_skip')}</span></div>`}
       <p style="margin-top:6px">${esc(msg)}</p><div class="tl">${cells}</div><div class="tlx">${hours.map(h => `<span>${h % 3 === 0 ? h : ''}</span>`).join('')}</div></section>`;
@@ -297,14 +297,14 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     if (!pl.segments.length) body = `<p class="note">${esc(t('pd_none'))}</p>`;
     else body = `<ol class="pd" id="pd-lines">${pl.segments.map(g => `<li>${esc(t('pd_seg', { start: g.start, end: g.end, platform: g.platform, zone: g.zone, rate: inr(g.perHr) }))}</li>`).join('')}</ol>
       <p id="pd-total" style="margin-top:8px"><b>${esc(pl.reached ? t('pd_total', { x: inr(pl.expected), h: pl.hours }) : t('pd_short', { x: inr(pl.expected), h: pl.hours, goal: inr(S.goal) }))}</b></p>`;
-    return `<section class="card"><div class="rows between" style="align-items:end"><h3 class="h3">${t('pd_h')}</h3>
+    return `<section class="card o-plan"><div class="rows between" style="align-items:end"><h3 class="h3">${t('pd_h')}</h3>
       <div class="field" style="width:150px"><label for="pd-goal">${t('pd_goal')}</label><input id="pd-goal" type="number" inputmode="numeric" step="50" min="100" value="${S.goal}"></div></div>
       <div style="margin-top:10px">${body}</div>${pl.segments.length ? `<button class="btn sm alt" id="pd-spk" style="margin-top:10px">${ic('volume')}${t('speak')}</button>` : ''}</section>`;
   }
   function weekCardHTML(rep) {
     const c = T.weeklyCoach(rep); if (!c) return '';
     const dl = c.deltaPerHr;
-    return `<section class="card"><div class="rows between"><h3 class="h3">${t('wk_h')}</h3><button class="link" id="wk-more">${t('more_advice')}</button></div>
+    return `<section class="card o-week"><div class="rows between"><h3 class="h3">${t('wk_h')}</h3><button class="link" id="wk-more">${t('more_advice')}</button></div>
       <p style="margin-top:6px">${esc(t('wk_sum', { days: c.cur.days, cash: inr(c.cur.net), hr: inr(c.cur.perHr) }))}${dl !== null && Math.abs(dl) >= 1 ? ' ' + esc(t(dl > 0 ? 'wk_up' : 'wk_down', { d: inr(Math.abs(dl)) })) : ''}</p></section>`;
   }
   function goalCard(rep) {
@@ -1075,7 +1075,8 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     b.innerHTML = `${ui.thumbs ? thumbsHTML(true) : ''}<h3 class="h2" style="font-size:22px">${nOrders ? esc(t('imp_found', { n: nOrders, s: P.sessions.length })) : esc(t('imp_none'))}</h3>
       <div class="rows" style="margin:8px 0 4px">${notes.join('')}${bad ? `<span class="pill dupp">${esc(t('imp_check_n', { n: bad }))}</span>` : ''}</div>
       ${P.unread ? `<div class="status err">${esc(t('imp_unread', { n: P.unread }))}</div>` : ''}
-      ${P.sessions.reduce((a, x) => a + (x.guessedHours || 0), 0) ? `<div class="status err">${esc(t('imp_guess', { n: P.sessions.reduce((a, x) => a + (x.guessedHours || 0), 0) }))}</div>` : ''}
+      ${P.sessions.reduce((a, x) => a + (x.fixedAmounts || 0), 0) ? `<div class="status err">${esc(t('imp_fixed', { n: P.sessions.reduce((a, x) => a + (x.fixedAmounts || 0), 0) }))}</div>` : ''}
+      ${P.sessions.some(x => x.summary) ? `<div class="status err">${esc(t('imp_summary'))}</div>` : P.sessions.reduce((a, x) => a + (x.guessedHours || 0), 0) ? `<div class="status err">${esc(t('imp_guess', { n: P.sessions.reduce((a, x) => a + (x.guessedHours || 0), 0) }))}</div>` : ''}
       ${ui.msg && ui.msg.err ? `<div class="status err">${esc(ui.msg.text)}</div>` : ''}${cards}
       <div class="sticky-save"><button class="btn lg" id="p-save" style="flex:1"></button><button class="btn alt lg" id="p-discard">${t('imp_discard')}</button></div>`;
     const sync = () => { const n = P.sessions.filter(s => s.include).reduce((a, s) => a + s.orders.length, 0); const sv = $('#p-save', b); sv.textContent = t('imp_save', { n }); sv.disabled = !n; };
