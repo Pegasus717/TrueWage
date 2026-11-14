@@ -633,7 +633,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = self.path.split("?", 1)[0]
         if path == "/api/health":
-            return self._json(200, {"ok": True, "ai": bool(API_KEY), "model": MODEL if API_KEY else None, "db": store.backend()})
+            return self._json(200, {"ok": True, "ai": bool(API_KEY), "model": MODEL if API_KEY else None, "db": "postgres" if store.backend() == "pg" else "sqlite"})
         if path == "/api/me":
             user = self._user()
             if not user:

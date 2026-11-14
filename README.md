@@ -408,7 +408,9 @@ python tools/smoke.py http://127.0.0.1:8080  # 33 checks against any running dep
 
 ## 12. Deployment and project layout
 
-See [deploy/VULTR.md](deploy/VULTR.md) for Docker Compose (with automatic HTTPS) or a plain systemd service on a Vultr Ubuntu server.
+**Fastest live link:** [deploy/RENDER.md](deploy/RENDER.md) (Render + Supabase, one-click `render.yaml`).
+
+Also: [deploy/VULTR.md](deploy/VULTR.md) for Docker Compose (with automatic HTTPS) or a plain systemd service on a Vultr Ubuntu server.
 
 ```
 index.html, css/style.css, manifest.json, sw.js, icon.svg   web app shell (installable PWA)

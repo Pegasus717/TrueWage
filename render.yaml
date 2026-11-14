@@ -1,0 +1,30 @@
+# One-click deploy on Render (render.com): New + > Blueprint > pick this repo.
+# Render builds with pip, runs the server, gives you an https://<name>.onrender.com link and handles HTTPS.
+services:
+  - type: web
+    name: truewage
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python server.py
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: TRUEWAGE_TRUST_PROXY      # behind Render's HTTPS proxy: real client IP + Secure login cookie
+        value: "1"
+      - key: TRUEWAGE_COOKIE_SECURE
+        value: "1"
+      - key: TRUEWAGE_MODEL
+        value: claude-haiku-5-5
+      - key: TRUEWAGE_EXTRACT_MODEL
+        value: claude-haiku-5-5
+      - key: TRUEWAGE_ESCALATE_MODEL
+        value: claude-sonnet-5-5
+      - key: TRUEWAGE_AI_DAILY_IMAGES
+        value: "400"
+      - key: DATABASE_URL              # your Supabase Session pooler string (you type it in Render, it is never in git)
+        sync: false
+      - key: ANTHROPIC_API_KEY         # your Claude key (typed in Render, never in git)
+        sync: false

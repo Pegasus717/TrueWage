@@ -392,3 +392,67 @@ a.link,button.link{color:var(--ink);font-weight:700}
 .kept-card .kbar{height:14px;border-radius:999px;background:rgba(255,255,255,.2)}
 .kept-card .kbar i{border-radius:999px;background:linear-gradient(90deg,#E4572E,#FFC400 45%,#3DDC97)}
 @media(max-width:520px){.gaugebox{max-width:300px}}
+
+/* ================= v16: clean modern theme (replaces the chunky road-sign look) =================
+   Slate + emerald + a single amber accent. White cards, soft shadows, 1px hairlines, generous spacing. */
+:root{--bg:#F3F5F8;--surface:#FFFFFF;--ink:#0F172A;--ink2:#475569;--ink3:#64748B;--rule:#E3E8EF;--mark:#FFB800;--yellow:#F5A300;--yellow-d:#D98E00;
+  --kept:#047857;--kept-bg:#DCFCE7;--lost:#B91C1C;--lost-bg:#FEE2E2;--warn:#92400E;--warn-bg:#FEF3C7;
+  --serif:"Inter","Public Sans",system-ui,"Noto Sans Devanagari","Noto Sans Telugu","Noto Sans Tamil",sans-serif;--r:16px;
+  --shadow:0 1px 2px rgba(15,23,42,.06),0 4px 16px rgba(15,23,42,.06)}
+body{background:var(--bg);font-family:"Inter","Public Sans",system-ui,"Noto Sans Devanagari","Noto Sans Telugu","Noto Sans Tamil",sans-serif}
+/* header and tab bar */
+.bar{background:#fff;border-bottom:1px solid var(--rule);box-shadow:0 1px 0 rgba(15,23,42,.02)}
+.bar::after{display:none}
+.logo{font:800 20px/1 var(--serif);letter-spacing:-.4px;color:var(--ink)}
+.logo svg rect:first-child{fill:#0F172A}
+.nav button{color:var(--ink2)}.nav button[aria-current=page]{color:var(--ink);border-bottom-color:var(--yellow)}
+.bar .btn{background:var(--ink);color:#fff;border-color:var(--ink)}
+.bar .sel,#btn-acct{background-color:#fff;border:1px solid var(--rule)}
+.tabbar{background:#fff;border-top:1px solid var(--rule);box-shadow:0 -4px 16px rgba(15,23,42,.05)}
+.tabbar button{color:var(--ink3);font-weight:600}
+.tabbar button[aria-current=page]{color:var(--ink)}
+.tabbar button[aria-current=page]::before{left:30%;right:30%;height:4px;background:var(--yellow);border:0;border-radius:0 0 6px 6px}
+/* buttons */
+.btn{background:var(--yellow);color:#111827;border:0;box-shadow:0 1px 2px rgba(15,23,42,.15),0 6px 14px rgba(245,163,0,.28);border-radius:14px;font-weight:700}
+.btn:active{transform:translateY(1px);box-shadow:0 1px 2px rgba(15,23,42,.15)}
+.btn.alt{background:#fff;color:var(--ink);border:1px solid var(--rule);box-shadow:0 1px 2px rgba(15,23,42,.06)}
+.btn.danger{background:#fff;color:var(--lost);border:1px solid #FCA5A5;box-shadow:none}
+.btn.sm{box-shadow:0 1px 2px rgba(15,23,42,.1);border-radius:12px}
+.btn[disabled]{box-shadow:none}
+a.link,button.link{color:var(--ink);font-weight:600;text-decoration-color:var(--yellow);text-decoration-thickness:2px}
+#fab,.fab{background:var(--ink);color:#fff;border:0;box-shadow:0 8px 24px rgba(15,23,42,.3)}
+#fab svg,.fab svg{stroke:#fff}
+/* cards */
+.card,.next,.acts .btn{border:1px solid var(--rule)}
+.card{background:#fff;border-radius:var(--r);box-shadow:var(--shadow)}
+.next{border-left:4px solid var(--yellow);background:#fff;box-shadow:var(--shadow);border-radius:var(--r)}
+.pill{background:#FFF7E0;color:#7A4B00;border:1px solid #FBE3A0;font-weight:700}
+.sheet-in{border:0;border-radius:24px 24px 0 0;box-shadow:0 -10px 40px rgba(15,23,42,.25)}
+.drop{border:2px dashed #CBD5E1;background:#fff;border-radius:18px}
+.drop.over{background:#FFFBEB;border-color:var(--yellow)}
+.toast{background:var(--ink);color:#fff;border:0;font-weight:600;box-shadow:0 10px 30px rgba(15,23,42,.3)}
+.best-slot{background:#FFF7E0;border:1px solid #FBE3A0;color:#7A4B00}
+.verdict{border-width:2px}
+/* the money card */
+.kept-card{background:linear-gradient(160deg,#0F172A 0%,#1E293B 100%);border:0;border-radius:22px;box-shadow:0 10px 30px rgba(15,23,42,.28);color:#fff}
+.kept-card::before{display:none}
+.kept-card .kept-lbl{color:#94A3B8;margin-top:0;font-weight:600;letter-spacing:.2px}
+.kept-card .kept-n{color:#fff;font-weight:800;letter-spacing:-2.5px}
+.kept-card .kept-n.neg{color:#FCA5A5}
+.kept-card .kept-sum{color:#CBD5E1}.kept-card .kept-sum b{color:#FCD34D}
+.kept-card .kbar{background:rgba(255,255,255,.12)}
+.kept-card .kbar i{background:linear-gradient(90deg,#F59E0B,#34D399)}
+.kept-card .kbar-l,.g-leg{color:#94A3B8}
+.gauge .g-sm{fill:#94A3B8}
+.gauge .g-big{fill:#fff}
+/* hero and scene */
+.hero h1{font-weight:800;letter-spacing:-1.5px}
+.hl,.hero h1 em{background:linear-gradient(transparent 62%,#FFD25A 62%)}
+.routeart{border-radius:18px;background:#fff;border:1px solid var(--rule);box-shadow:var(--shadow);padding:8px}
+.routeart rect[fill="#17150F"]{fill:#E2E8F0}.routeart g[stroke="#F5D547"]{stroke:#fff}
+/* inputs */
+.field input,.field select,.sel{border:1px solid #CBD5E1;border-radius:12px;background-color:#fff}
+.field input:focus,.field select:focus{border-color:var(--yellow);box-shadow:0 0 0 3px rgba(245,163,0,.25);outline:none}
+.status{border-radius:12px}
+.hm td{border-radius:10px}
+.landing .seg button[aria-pressed=true],.seg button[aria-pressed=true]{background:var(--ink);color:#fff}
