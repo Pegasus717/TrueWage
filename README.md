@@ -62,7 +62,7 @@ real pay per hour = cash remaining / online hours   (online hours include waitin
 ```bash
 node tests/engine.test.js                   # calculation engine, accuracy range, calibration, Ask intent detection in 4 languages, parser, duplicates, simulator
 python -m unittest discover -s tests        # server (19 tests): validation, k-anonymity, registry, static whitelist, rate limit, extraction + Ask flow against a mock model API
-python tools/smoke.py http://127.0.0.1:8080 # 21 checks against any running deployment
+python tools/smoke.py http://127.0.0.1:8080 # 22 checks against any running deployment
 ```
 
 What the tests do **not** prove: accuracy of the real Claude model on real screenshots (the extraction flow is tested against a local mock of the model API), and real-world OCR accuracy on arbitrary app layouts. On the bundled sample screenshots on-device OCR recovered every order and amount in manual testing; one bonus digit was misread, which is exactly why the review step exists.
