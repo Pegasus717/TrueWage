@@ -289,3 +289,52 @@ html.big{font-size:19px}html.big body{font-size:19px}
 .acct{display:flex;gap:14px;align-items:center}
 .btn.danger{border-color:var(--lost);color:var(--lost)}
 .welcome{max-width:640px}
+
+/* ---------- v9: road-sign theme for gig workers ----------
+   Taxi-yellow and ink, like the plates, bags and meters riders already know. Chunky buttons that read in sunlight,
+   money shown on a dark "meter" card. Green still means money kept, red money lost. */
+:root{--bg:#FFFAE8;--rule:#EADFB4;--mark:#FFC400;--yellow:#FFC400;--yellow-d:#E0A800;--serif:"Archivo","Public Sans",system-ui,"Noto Sans Devanagari","Noto Sans Telugu","Noto Sans Tamil",sans-serif}
+body{background:var(--bg)}
+.bar{background:var(--yellow);border-bottom:3px solid var(--ink);position:sticky}
+.bar::after{content:"";position:absolute;left:0;right:0;bottom:-8px;height:5px;background:repeating-linear-gradient(90deg,var(--ink) 0 18px,transparent 18px 34px);opacity:.85;pointer-events:none}
+.logo{font:900 21px/1 var(--serif);letter-spacing:-.4px;text-transform:none}
+.nav button{color:#3a3000}.nav button[aria-current=page]{border-bottom-color:var(--ink);color:var(--ink)}
+.bar .sel,#btn-acct{background-color:#fff;border:2px solid var(--ink)}
+.bar .btn{background:var(--ink);color:var(--yellow);border-color:var(--ink)}
+.h2,.hero h1,.kept-n,.stats .v,.verdict .word,.shift-big .num,.bigfield input,.bigfield span,.lg.end .v{font-family:var(--serif);font-weight:800}
+.hero h1{font-weight:900;letter-spacing:-1.5px}
+.hl,.hero h1 em{background:linear-gradient(transparent 55%,var(--yellow) 55%)}
+/* buttons: chunky, pressable */
+.btn{background:var(--yellow);color:var(--ink);border:2px solid var(--ink);box-shadow:0 4px 0 var(--ink);font-weight:800;transition:transform .08s,box-shadow .08s}
+.btn:active{transform:translateY(3px);box-shadow:0 1px 0 var(--ink)}
+.btn.alt{background:var(--surface);color:var(--ink)}
+.btn.danger{background:#fff;border-color:var(--lost);color:var(--lost);box-shadow:0 4px 0 var(--lost)}
+.btn[disabled]{box-shadow:none}
+.btn.sm{box-shadow:0 3px 0 var(--ink)}
+a.link,button.link{color:var(--ink);font-weight:700}
+/* the "meter" card: what you really kept */
+.kept-card{background:var(--ink);color:#fff;border:0;border-radius:20px;position:relative;overflow:hidden;box-shadow:0 6px 0 var(--yellow-d)}
+.kept-card::before{content:"";position:absolute;left:0;right:0;top:0;height:8px;background:repeating-linear-gradient(135deg,var(--yellow) 0 14px,var(--ink) 14px 28px)}
+.kept-card .kept-lbl{color:#E9DFB5;margin-top:6px;font-weight:700;letter-spacing:.2px}
+.kept-card .kept-n{color:var(--yellow);font-weight:900;letter-spacing:-3px}
+.kept-card .kept-n.neg{color:#FF8A6B}
+.kept-card .kept-sum{color:#fff}.kept-card .kept-sum b{color:var(--yellow)}
+
+.kept-card .note,.kept-card small,.kept-card .muted{color:#D8CFA6}
+.card{border:2px solid var(--ink);border-radius:16px;box-shadow:0 3px 0 var(--rule)}
+.next{border:2px solid var(--ink);border-left:10px solid var(--yellow);background:#fff}
+.pill{background:var(--yellow);color:var(--ink);border-color:var(--ink);font-weight:700}
+/* bottom tabs: yellow marker on the current one */
+.tabbar{background:#fff;border-top:3px solid var(--ink)}
+.tabbar button[aria-current=page]{color:var(--ink);font-weight:800}
+.tabbar button[aria-current=page]::before{left:22%;right:22%;height:6px;background:var(--yellow);border:2px solid var(--ink);border-top:0;border-radius:0 0 8px 8px}
+#fab,.fab{background:var(--yellow);color:var(--ink);border:2px solid var(--ink);box-shadow:0 4px 0 var(--ink);font-weight:800}
+.drop{border:3px dashed var(--ink);background:#fff;border-radius:18px}
+.drop.over{background:#FFF3BF}
+.sheet-in{border:3px solid var(--ink);border-bottom:0}
+.verdict{border-width:3px}
+.toast{background:var(--ink);color:var(--yellow);border:2px solid var(--yellow);font-weight:700}
+@media(min-width:900px){.bar::after{bottom:-8px}}
+.kept-card .kbar{background:rgba(255,255,255,.2)}
+.kept-card .kbar-l{color:#E9DFB5}
+.kept-card .kbar-l{background:none}

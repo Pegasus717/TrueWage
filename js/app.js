@@ -90,7 +90,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     const veh = ['petrol', 'ev', 'cng', 'car'].map(v => `<option value="${v}" ${p.vehicle === v ? 'selected' : ''}>${t('v_' + v)}</option>`).join('');
     return `<div class="field"><label>${t('vehicle')}</label><select data-cost="vehicle">${veh}</select></div>` +
       f('fixedPerDay', 'fixed', 10) + f('fuelPrice', 'fuel_price') + f('mileage', 'mileage') +
-      `<div class="field"><label>${t('cal_field')}</label><input type="number" inputmode="decimal" step="0.1" min="0" data-cost="fuelPerKmOverride" value="${p.fuelPerKmOverride || ''}" placeholder="\u2013"></div>` + + f('maintPerKm', 'maint', 0.05) + f('deadKm', 'dead', 0.05) + f('dataPerHour', 'datacost', 0.5) + f('minWage', 'minwage', 5);
+      `<div class="field"><label>${t('cal_field')}</label><input type="number" inputmode="decimal" step="0.1" min="0" data-cost="fuelPerKmOverride" value="${p.fuelPerKmOverride || ''}" placeholder="\u2013"></div>` + f('maintPerKm', 'maint', 0.05) + f('deadKm', 'dead', 0.05) + f('dataPerHour', 'datacost', 0.5) + f('minWage', 'minwage', 5);
   }
   function bindCosts(root) {
     $$('[data-cost]', root).forEach(inp => inp.addEventListener('change', () => {
@@ -886,6 +886,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     if (!S.shift) return;
     const sh = S.shift, end = Date.now(); stopWatch(); S.shift = null;
     const onlineMin = Math.max(1, Math.round((end - sh.start) / 60000)), km = Math.round((sh.km || 0) * 100) / 100;
+    if (end - sh.start < 3 * 60000 && km < 0.2) { save(); toast(t('sh_short')); rerender(); return; }
     S.shifts.push({ id: 's' + sh.start, date: localDate(sh.start), platform: sh.platform, startTs: sh.start, endTs: end, onlineMin, km, gps: sh.gps === 'on' ? 'on' : 'off', source: 'tracked' });
     S.shifts = S.shifts.slice(-400); recompute(); toast(t('sh_saved', { h: hm(onlineMin), km: km.toFixed(1) })); rerender();
   }
@@ -1040,7 +1041,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     drop.addEventListener('drop', e => handleFiles(e.dataTransfer.files));
     $('#btn-samples', b).onclick = trySamples;
   }
-  const thumbsHTML = () => !ui.thumbs ? '' : `<div class="thumbs">${ui.thumbs.urls.map((u, i) => ui.thumbs.dl ? `<a href="${u}" download="truewage-sample-${i + 1}.png" title="download"><img src="${u}" alt="sample screenshot ${i + 1}"></a>` : `<img src="${u}" alt="screenshot ${i + 1}">`).join('')}${ui.thumbs.dl ? `<p class="note" style="align-self:center;max-width:210px">${t('imp_sample_hint')}</p>` : ''}</div>`;
+  const thumbsHTML = review => !ui.thumbs ? '' : `<div class="thumbs">${ui.thumbs.urls.map((u, i) => ui.thumbs.dl ? `<a href="${u}" download="truewage-sample-${i + 1}.png" title="download"><img src="${u}" alt="sample screenshot ${i + 1}"></a>` : `<img src="${u}" alt="screenshot ${i + 1}">`).join('')}${ui.thumbs.dl && !review ? `<p class="note" style="align-self:center;max-width:210px">${t('imp_sample_hint')}</p>` : ''}</div>`;
   const setProgress = p => { const el = $('#read-bar'); ui.progress = Math.max(6, rd(p * 100)); if (el) el.style.width = ui.progress + '%'; };
   const fmtTime = h => { const hh = Math.floor(h), mm = Math.round((h - hh) * 60); return String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0'); };
   const sessionPay = s => s.orders.reduce((a, o) => a + (+o.pay || 0) + (+o.incentive || 0), 0) + (+s.bonus || 0);
@@ -1071,7 +1072,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     }).join('');
     const notes = [`<span class="pill">${t(P.reader === 'ai' ? 'reader_ai' : P.reader === 'ocr' ? 'reader_ocr' : 'reader_demo')}</span>`];
     if (P.dupImages) notes.push(`<span class="pill warnp">${esc(t('imp_dup_img', { n: P.dupImages }))}</span>`);
-    b.innerHTML = `${ui.thumbs ? thumbsHTML() : ''}<h3 class="h2" style="font-size:22px">${nOrders ? esc(t('imp_found', { n: nOrders, s: P.sessions.length })) : esc(t('imp_none'))}</h3>
+    b.innerHTML = `${ui.thumbs ? thumbsHTML(true) : ''}<h3 class="h2" style="font-size:22px">${nOrders ? esc(t('imp_found', { n: nOrders, s: P.sessions.length })) : esc(t('imp_none'))}</h3>
       <div class="rows" style="margin:8px 0 4px">${notes.join('')}${bad ? `<span class="pill dupp">${esc(t('imp_check_n', { n: bad }))}</span>` : ''}</div>
       ${P.unread ? `<div class="status err">${esc(t('imp_unread', { n: P.unread }))}</div>` : ''}
       ${ui.msg && ui.msg.err ? `<div class="status err">${esc(ui.msg.text)}</div>` : ''}${cards}
