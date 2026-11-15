@@ -4,14 +4,11 @@
 
 [![CI](https://github.com/Pegasus717/TrueWage/actions/workflows/ci.yml/badge.svg)](https://github.com/Pegasus717/TrueWage/actions/workflows/ci.yml)
 
-**Live demo, hosted on Vultr:** https://65-20-93-226.sslip.io/ (always on, on-device screenshot reader)
-**Second deployment on Render:** https://truewage-0p3b.onrender.com/ (with the Claude screenshot reader and the Supabase database; free hosting, so the first load after a quiet period can take up to a minute)
+**Live demo (hosted on Vultr):** https://65-20-93-226.sslip.io/ · **Setup:** [Getting started](#getting-started) · **Architecture:** [docs/architecture.md](docs/architecture.md)
 
 TrueWage helps delivery partners and cab drivers find out what they really earn. The rider uploads earnings screenshots from apps such as Swiggy, Zomato, Rapido or Ola. TrueWage reads them with AI, subtracts petrol, repairs, mobile data, vehicle EMI and waiting time, and shows the amount the rider actually kept and their real pay per hour.
 
 ![TrueWage home screen](docs/screens/06-desktop.png)
-
-**Jump to:** [Overview](#overview) · [Features](#features) · [Architecture](#architecture) · [Tech stack](#tech-stack) · [Getting started](#getting-started) · [Configuration](#configuration) · [Testing](#testing) · [Deployment](#deployment) · [Security](#security-and-privacy) · [Limitations](#limitations) · [Team](#team)
 
 ---
 
