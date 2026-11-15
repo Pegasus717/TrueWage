@@ -4,8 +4,8 @@
 
 [![CI](https://github.com/Pegasus717/TrueWage/actions/workflows/ci.yml/badge.svg)](https://github.com/Pegasus717/TrueWage/actions/workflows/ci.yml)
 
-**Live demo:** https://truewage-0p3b.onrender.com/
-The site runs on free hosting, so the first load after a quiet period can take up to a minute.
+**Live demo on Vultr:** https://65-20-93-226.sslip.io/ (always on)
+**Main site with AI reading and the hosted database:** https://truewage-0p3b.onrender.com/ (free hosting, so the first load after a quiet period can take up to a minute)
 
 TrueWage helps delivery partners and cab drivers find out what they really earn. The rider uploads earnings screenshots from apps such as Swiggy, Zomato, Rapido or Ola. TrueWage reads them with AI, subtracts petrol, repairs, mobile data, vehicle EMI and waiting time, and shows the amount the rider actually kept and their real pay per hour.
 
@@ -133,7 +133,7 @@ The full schema is in [deploy/supabase_schema.sql](deploy/supabase_schema.sql). 
 | AI | Claude API (vision and text) | Reading screenshots and answering questions |
 | Database | Supabase PostgreSQL | Accounts, rider data, history, analytics, cache |
 | Database | SQLite | Local development and tests |
-| Hosting | Render | The live site |
+| Hosting | Vultr Cloud Compute, Render | Vultr runs the Docker deployment; Render runs the main site with the hosted database |
 | Containers | Docker, Docker Compose, Caddy | Running on any server with automatic HTTPS |
 | Quality | Node.js and Python `unittest`, GitHub Actions | Tests and continuous integration |
 
@@ -260,7 +260,7 @@ The server tests run against a local mock of the Claude API, so they never spend
 | Option | Details |
 |---|---|
 | Render (live site) | `render.yaml` and [deploy/RENDER.md](deploy/RENDER.md) |
-| Any server with Docker | `Dockerfile` and `docker-compose.yml` with automatic HTTPS, described in [deploy/VULTR.md](deploy/VULTR.md). These files have not yet been run on a Vultr server. |
+| Vultr Cloud Compute (live) | A Mumbai server (1 vCPU, 2 GB, Ubuntu 24.04) set up by the first-boot script [deploy/vultr-startup.sh](deploy/vultr-startup.sh): it installs Docker, pulls this repository and runs `docker-compose.yml` with Caddy, which gets an HTTPS certificate for a free `<ip>.sslip.io` name. The same files run on any Docker host; see [deploy/VULTR.md](deploy/VULTR.md). This copy uses a local SQLite database and the on-device screenshot reader, because no database URL or AI key is set on it. |
 | Database | Supabase PostgreSQL, see [deploy/SUPABASE.md](deploy/SUPABASE.md) |
 | Backups and uptime | `.github/workflows/backup.yml` (daily encrypted dump) and `uptime.yml` (readiness check every 10 minutes), see [docs/architecture.md](docs/architecture.md#backups-migrations-and-monitoring) |
 
