@@ -2,12 +2,17 @@
 (function (root) {
   'use strict';
 
+  // miscPerKm = everything except tyres, oil/service and battery (brakes, chain, cables, small repairs). Used only in the detailed wear model.
   const VEHICLES = {
-    petrol: { mileage: 45, fuelPrice: 105, maintPerKm: 1.2, deadKm: 0.45 }, // km/l, Rs/l
-    ev:     { mileage: 28, fuelPrice: 9,   maintPerKm: 0.45, deadKm: 0.45 }, // km/kWh, Rs/kWh
-    cng:    { mileage: 24, fuelPrice: 80,  maintPerKm: 1.6, deadKm: 0.6 },  // km/kg, Rs/kg
-    car:    { mileage: 16, fuelPrice: 100, maintPerKm: 2.6, deadKm: 0.55 }
+    petrol: { mileage: 45, fuelPrice: 105, maintPerKm: 1.2, deadKm: 0.45, miscPerKm: 0.35 }, // km/l, Rs/l
+    ev:     { mileage: 28, fuelPrice: 9,   maintPerKm: 0.45, deadKm: 0.45, miscPerKm: 0.15 }, // km/kWh, Rs/kWh
+    cng:    { mileage: 24, fuelPrice: 80,  maintPerKm: 1.6, deadKm: 0.6, miscPerKm: 0.5 },  // km/kg, Rs/kg
+    car:    { mileage: 16, fuelPrice: 100, maintPerKm: 2.6, deadKm: 0.55, miscPerKm: 0.8 },
+    cycle:  { mileage: 100, fuelPrice: 0, maintPerKm: 0.25, deadKm: 0.3, miscPerKm: 0.1 }   // pedal cycle: no fuel at all
   };
+  // Fuel use rises in slow, stop-start traffic and with a heavy load. A rider's own measured fuel cost (from fill-ups or typed in) already
+  // contains these effects, so the factor is applied to the estimate only.
+  const TRAFFIC = { light: 0.92, normal: 1, heavy: 1.12 };
 
   const DAYPARTS = ['morning', 'lunch', 'afternoon', 'evening', 'night'];
   const DAYPART_HOURS = { morning: '6–11', lunch: '11–15', afternoon: '15–18', evening: '18–23', night: '23–6' };
@@ -27,14 +32,35 @@
       vehicle: vehicle || 'petrol',
       mileage: v.mileage, fuelPrice: v.fuelPrice, maintPerKm: v.maintPerKm, deadKm: v.deadKm,
       dataPerHour: 2.5,   // Rs per online hour (mobile data + battery/phone wear)
-      fixedPerDay: 0,     // EMI / rent / insurance per day
+      fixedPerDay: 0,     // any other fixed cost per day (the original single "EMI / rent" box; still counted)
       minWage: 90,        // fair-wage benchmark, Rs/hour (illustrative, editable)
-      fuelPerKmOverride: 0 // optional: the rider's own measured fuel cost per km (Rs). 0 = derive from mileage and price
+      fuelPerKmOverride: 0, // optional: the rider's own measured fuel cost per km (Rs). 0 = derive from mileage and price
+      // v3 cost model
+      ownership: 'owned', // 'owned' (loan EMI and insurance count) or 'rented' (daily rent counts; the owner pays repairs)
+      emiPerMonth: 0, insurancePerYear: 0, rentPerDay: 0,
+      traffic: 'normal',  // light | normal | heavy: how much stop-start riding and load raise fuel use
+      detailWear: 0,      // 1 = use the part-by-part wear costs below instead of the single repairs-per-km figure
+      tyrePrice: 0, tyreLife: 0, oilPrice: 0, oilEvery: 0, batteryPrice: 0, batteryLife: 0   // price of the part / km it lasts
     };
   }
 
   const sum = (a, f) => a.reduce((s, x) => s + f(x), 0);
-  const fuelKm = p => (p.fuelPerKmOverride > 0 ? p.fuelPerKmOverride : p.fuelPrice / p.mileage);
+  const fuelKm = p => (p.fuelPerKmOverride > 0 ? p.fuelPerKmOverride : (p.fuelPrice > 0 && p.mileage > 0 ? p.fuelPrice / p.mileage : 0) * (TRAFFIC[p.traffic] || 1));
+  const per = (price, km) => (+price > 0 && +km > 0 ? price / km : 0);
+  /** Repairs and wear per km. Rented vehicle: the owner pays, so 0 (anything the rider does pay is logged as an expense).
+   *  Detailed model: tyres + oil/service + battery, each price / km it lasts, plus the small-parts figure for the vehicle type. */
+  const maintKm = p => {
+    if (p.ownership === 'rented') return 0;
+    if (p.detailWear) return per(p.tyrePrice, p.tyreLife) + per(p.oilPrice, p.oilEvery) + per(p.batteryPrice, p.batteryLife) + (VEHICLES[p.vehicle] || VEHICLES.petrol).miscPerKm;
+    return +p.maintPerKm || 0;
+  };
+  /** Fixed cost per calendar day: loan EMI and insurance when the vehicle is owned, rent when rented, plus the "other fixed" box. */
+  const fixedDaily = p => (+p.fixedPerDay || 0) + (p.ownership === 'rented' ? (+p.rentPerDay || 0) : (+p.emiPerMonth || 0) / 30 + (+p.insurancePerYear || 0) / 365);
+  /** What the vehicle costs the rider, for the cost sheet: per km ridden (before unpaid riding), per km including it, and per day. */
+  function costPerKm(profile) {
+    const p = Object.assign(defaultProfile(), profile || {}), fuel = fuelKm(p), wear = maintKm(p);
+    return { fuel, wear, perKm: fuel + wear, perKmAll: (fuel + wear) * (1 + p.deadKm), fixedDay: fixedDaily(p) };
+  }
   const round = (n, d = 0) => { const m = Math.pow(10, d); return Math.round(n * m) / m; };
 
   /** Flatten sessions into orders, filling idle (unpaid waiting) time, and attach cost fields.
@@ -74,7 +100,7 @@
     const fuelPerKm = fuelKm(p);
     const ds = sessions.filter(s => s.orders && s.orders.length).map(s => s.date).sort();
     const ex = ds.length ? expenseSplit(p.expenses, ds[0], ds[ds.length - 1]) : { extras: 0, hasRepair: false };
-    const maintK = ex.hasRepair ? 0 : p.maintPerKm;
+    const maintK = ex.hasRepair ? 0 : maintKm(p);
     const vehicleKm = fuelPerKm + maintK;
     const out = [];
     sessions.forEach((s, si) => {
@@ -115,7 +141,7 @@
     if (out.length) {
       const dates = Array.from(new Set(out.map(o => o.date))).sort();
       const calSpan = effSpan(dates);
-      const perWorkedDay = p.fixedPerDay * calSpan / dates.length;
+      const perWorkedDay = fixedDaily(p) * calSpan / dates.length;
       const dayMins = new Map(), dayN = new Map();
       out.forEach(o => { dayMins.set(o.date, (dayMins.get(o.date) || 0) + o.mins); dayN.set(o.date, (dayN.get(o.date) || 0) + 1); });
       const extraPerDay = ex.extras / dates.length;                          // logged cash costs, spread over worked days then by minutes
@@ -203,7 +229,7 @@
     const solidZD = zoneDaypart.filter(solid);
 
     // breakeven pay per paid km: what an order must pay just to cover fuel+repairs (incl. unpaid riding)
-    const vehicleKm = fuelKm(p) + p.maintPerKm;
+    const vehicleKm = fuelKm(p) + maintKm(p);
     const breakEvenPerKm = vehicleKm * (1 + p.deadKm);
     const belowBE = orders.filter(o => o.km > 0 && (o.pay + o.incentive - o.deduction) / o.km < breakEvenPerKm);
     const belowBEPct = orders.length ? belowBE.length / orders.length * 100 : 0;
@@ -292,24 +318,36 @@
   }
 
   /** Loan-ready income statement numbers derived from the analysis. */
-  function statementData(rep, rider) {
+  function statementData(rep, rider, extra) {
     const t = rep.total;
-    const existingEmi = (rep.profile.fixedPerDay || 0) * 30;               // monthly vehicle EMI is a fixed obligation
+    const existingEmi = fixedDaily(rep.profile) * 30;                      // monthly vehicle EMI / rent is a fixed obligation
     const monthlyBeforeEmi = t.op / rep.spanDays * 30;                      // lenders look at income BEFORE the loan being serviced
     const monthlyNet = monthlyBeforeEmi - existingEmi;
     const monthlyGross = t.appShown / rep.spanDays * 30;
     const med = rep.medianDayNet;
     const stable = rep.byDay.filter(d => d.net >= 0.5 * med).length / rep.byDay.length;
+    // v2: month by month. A month counts toward the lender's typical and lowest figures only when the rider worked at least 10 days in it,
+    // so one stray day in a month cannot pull the "lowest month" to nearly zero.
+    const months = periods(rep, 'month'), counted = months.filter(m => m.days >= 10);
+    const monthRows = months.map(m => [m.key, m.days, round(m.hours, 1), round(m.appShown), round(m.deduction), round(m.op), round(m.net)]);
+    const lowest = counted.length ? Math.min.apply(null, counted.map(m => m.op)) : null;
+    const avg = counted.length ? sum(counted, m => m.op) / counted.length : null;
     return {
+      version: 2,
       rider: rider || {},
       period: { from: rep.dates[0], to: rep.dates[rep.dates.length - 1], daysWorked: rep.daysWorked, spanDays: rep.spanDays, short: rep.daysWorked < 14 },
       platforms: rep.byPlatform.map(p => p.key),
       totals: { appShown: round(t.appShown), deductions: round(t.deduction), fuel: round(t.fuel), maint: round(t.maint), data: round(t.data), fixed: round(t.fixed), operatingProfit: round(t.op), net: round(t.net), hours: round(t.hours, 1), orders: t.n },
       monthly: { gross: round(monthlyGross), net: round(monthlyNet), beforeEmi: round(monthlyBeforeEmi) },
+      months: monthRows,                                                      // [month, days worked, hours, app-shown, deductions, before EMI, after EMI and all costs]
+      monthStats: { counted: counted.length, avgBeforeEmi: avg == null ? null : round(avg), lowestBeforeEmi: lowest == null ? null : round(lowest), minDays: 10 },
       medianDayNet: round(med),
       stability: round(stable * 100),
       emiCapacity: Math.max(0, round(monthlyBeforeEmi * 0.4 - existingEmi)),   // indicative: 40% FOIR guideline minus existing vehicle EMI
-      daily: rep.byDay.map(d => [d.date, round(d.appShown), round(d.net), round(d.hours, 1)])
+      emiCapacityLow: lowest == null ? null : Math.max(0, round(lowest * 0.4 - existingEmi)),   // the same, from the weakest counted month
+      obligations: { vehicleMonthly: round(existingEmi), foir: 40 },
+      provenance: extra && extra.provenance ? extra.provenance : null,
+      daily: rep.byDay.slice(-120).map(d => [d.date, round(d.appShown), round(d.net), round(d.hours, 1)])
     };
   }
 
@@ -319,9 +357,9 @@
     const km = Math.max(0.1, +o.km || 0), pay = +o.pay || 0;
     const rideMin = +o.mins || (10 + km * 3.4);
     const effMin = rideMin + (+o.avgWait || 0);               // include the unpaid waiting an order usually costs
-    const vehicleKm = fuelKm(p) + p.maintPerKm;
+    const vehicleKm = fuelKm(p) + maintKm(p);
     // EMI per online hour: measured from the rider's own history when available, else an even 9-hour day
-    const fixedHr = o.fixedPerHour != null ? o.fixedPerHour : p.fixedPerDay / 9;
+    const fixedHr = o.fixedPerHour != null ? o.fixedPerHour : fixedDaily(p) / 9;
     const vehicleCost = km * (1 + p.deadKm) * vehicleKm, timeCost = effMin / 60 * (p.dataPerHour + fixedHr);
     const cost = vehicleCost + timeCost;
     const net = pay - cost, perHr = net / (effMin / 60);
@@ -392,7 +430,7 @@
     const p = Object.assign(defaultProfile(), profile || {});
     const calibrated = p.fuelPerKmOverride > 0;
     const run = (fuelK, deadK, maintK) => {
-      const q = Object.assign({}, p, { deadKm: Math.max(0, p.deadKm * deadK), maintPerKm: p.maintPerKm * maintK });
+      const q = Object.assign({}, p, { deadKm: Math.max(0, p.deadKm * deadK), detailWear: 0, maintPerKm: maintKm(p) * maintK });   // detailed wear collapses to its per-km total so it can be scaled; a rented vehicle stays at 0
       if (calibrated) q.fuelPerKmOverride = p.fuelPerKmOverride * fuelK; else q.mileage = p.mileage / fuelK;
       const a = aggregate(enrich(sessions, q));
       return { perHr: a.perHr, cash: a.net };
@@ -533,6 +571,93 @@
     return { cur, prev, deltaPerHr: prev ? cur.perHr - prev.perHr : null, deltaNet: prev ? cur.net - prev.net : null, bestDay, win, fix };
   }
 
+  /* ---------------- settlements: weekly / monthly periods, platform payouts, platform comparison ---------------- */
+  const mondayOf = iso => addDays(iso, -((new Date(iso + 'T00:00:00Z').getUTCDay() + 6) % 7));
+  const lastOfMonth = key => { const [y, m] = key.split('-').map(Number); return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10); };
+  const prevMonth = key => { const [y, m] = key.split('-').map(Number); return new Date(Date.UTC(y, m - 2, 1)).toISOString().slice(0, 7); };
+
+  /** Calendar weeks (Monday to Sunday, the cycle most platforms pay on) or calendar months, oldest first. Each period carries the same cost
+   *  breakdown as the whole analysis, a per-platform split, and the change against the period right before it (only when that one exists). */
+  function periods(rep, kind) {
+    if (!rep || !rep.orders || !rep.orders.length) return [];
+    const month = kind === 'month', keyOf = month ? o => o.date.slice(0, 7) : o => mondayOf(o.date), last = rep.dates[rep.dates.length - 1];
+    const list = Array.from(groupBy(rep.orders, keyOf)).map(([key, l]) => {
+      const a = aggregate(l), from = month ? key + '-01' : key, to = month ? lastOfMonth(key) : addDays(key, 6);
+      return {
+        key, kind: month ? 'month' : 'week', from, to, days: new Set(l.map(o => o.date)).size, orders: a.n, hours: a.hours, appShown: a.appShown, deduction: a.deduction,
+        gross: a.gross, fuel: a.fuel, maint: a.maint, data: a.data, fixed: a.fixed, cost: a.cost, op: a.op, net: a.net, perHr: a.perHr, appPerHr: a.appPerHr, partial: to > last,
+        platforms: Array.from(groupBy(l, o => o.platform)).map(([k, x]) => { const b = aggregate(x); return { key: k, orders: b.n, hours: b.hours, gross: b.gross, net: b.net, perHr: b.perHr }; }).sort((p, q) => q.gross - p.gross)
+      };
+    }).sort((x, y) => (x.key < y.key ? -1 : 1));
+    const by = new Map(list.map(p => [p.key, p]));
+    list.forEach(p => {
+      const prev = by.get(month ? prevMonth(p.key) : addDays(p.key, -7));
+      p.vsPrev = prev ? { net: p.net - prev.net, perHr: p.perHr - prev.perHr, days: p.days - prev.days } : null;
+    });
+    return list;
+  }
+
+  /** Compare what a platform paid out (typed in from the payout message or the bank) with what the rider's own order records add up to for the
+   *  same platform and dates. A gap is not proof of a wrong payout: it can also be orders that were never imported. */
+  function reconcile(sessions, payouts) {
+    return (payouts || []).map(po => {
+      let expected = 0, orders = 0, deductions = 0;
+      (sessions || []).forEach(s => {
+        if ((po.platform && po.platform !== 'All' && s.platform !== po.platform) || s.date < po.from || s.date > po.to) return;
+        (s.orders || []).forEach(o => { expected += (+o.pay || 0) + (+o.incentive || 0) - (+o.deduction || 0); deductions += +o.deduction || 0; orders++; });
+        expected += +s.bonus || 0;
+      });
+      const gap = (+po.amount || 0) - expected, tol = Math.max(30, expected * 0.02);
+      return Object.assign({}, po, { expected, orders, deductions, gap, gapPct: expected > 0 ? gap / expected * 100 : 0, status: !orders ? 'nodata' : Math.abs(gap) <= tol ? 'match' : gap < 0 ? 'short' : 'over' });
+    }).sort((a, b) => (a.from < b.from ? 1 : a.from > b.from ? -1 : 0));
+  }
+
+  const mulberry32 = a => () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+  /** 80% range of real pay per hour: resample the rider's own working days (with replacement) and see how far the hourly figure moves. */
+  function bootstrapRate(days, seed) {
+    const rnd = mulberry32(seed || 12345), n = days.length, out = [];
+    for (let i = 0; i < 400; i++) { let net = 0, h = 0; for (let j = 0; j < n; j++) { const d = days[Math.floor(rnd() * n)]; net += d.net; h += d.hours; } if (h > 0) out.push(net / h); }
+    out.sort((x, y) => x - y);
+    return out.length ? { lo: out[Math.floor(out.length * 0.1)], hi: out[Math.min(out.length - 1, Math.floor(out.length * 0.9))] } : null;
+  }
+
+  /** Real pay per hour for each platform the rider works, with an honest range, and which platform pays best in each part of the day.
+   *  A platform needs 3 days and 3 hours before it gets a range; a time of day needs 3 days and 2 hours per platform before it is compared. */
+  function comparePlatforms(rep) {
+    if (!rep) return { rows: [], byDaypart: [], comparable: false };
+    const rows = Array.from(groupBy(rep.orders, o => o.platform)).map(([platform, l]) => {
+      const a = aggregate(l), days = Array.from(groupBy(l, o => o.date)).map(([d, x]) => { const b = aggregate(x); return { net: b.net, hours: b.hours }; });
+      const ci = days.length >= 3 && a.hours >= 3 ? bootstrapRate(days, days.length * 7919 + Math.round(a.net)) : null;
+      return {
+        platform, days: days.length, orders: a.n, hours: a.hours, perHr: a.perHr, appPerHr: a.appPerHr, keepRatio: a.keepRatio, waitShare: a.waitShare,
+        avgPay: a.n ? a.appShown / a.n : 0, kmPerOrder: a.n ? a.km / a.n : 0, deductionPct: a.appShown > 0 ? a.deduction / a.appShown * 100 : 0,
+        lo: ci ? Math.min(ci.lo, a.perHr) : null, hi: ci ? Math.max(ci.hi, a.perHr) : null, enough: !!ci, solid: days.length >= 5 && a.hours >= 8
+      };
+    }).sort((x, y) => y.perHr - x.perHr);
+    const byDaypart = DAYPARTS.map(dp => {
+      const c = rows.map(r => {
+        const l = rep.orders.filter(o => o.platform === r.platform && o.daypart === dp), a = aggregate(l);
+        return { platform: r.platform, perHr: a.perHr, hours: a.hours, days: new Set(l.map(o => o.date)).size };
+      }).filter(x => x.days >= 3 && x.hours >= 2).sort((x, y) => y.perHr - x.perHr);
+      if (!c.length) return { daypart: dp, verdict: 'none' };
+      if (c.length < 2) return { daypart: dp, verdict: 'only', best: c[0] };
+      const margin = c[0].perHr - c[1].perHr;
+      return { daypart: dp, verdict: margin >= Math.max(10, Math.abs(c[1].perHr) * 0.15) ? 'clear' : 'close', best: c[0], runner: c[1], margin };
+    });
+    return { rows, byDaypart, comparable: rows.filter(r => r.enough).length >= 2 };
+  }
+
+  /** Where the orders in a rider's records came from (screenshot reader, on-device OCR, typed by hand) and how many were edited afterwards.
+   *  Printed on the income statement so a lender can see how much of it was typed by the rider. */
+  function provenance(sessions) {
+    const by = {}; let orders = 0, edited = 0, editedSessions = 0;
+    (sessions || []).forEach(s => {
+      const n = (s.orders || []).length, k = s.source === 'ai' || s.source === 'ocr' || s.source === 'demo' ? s.source : 'manual';
+      orders += n; by[k] = (by[k] || 0) + n; if (s.edited) { edited += n; editedSessions++; }
+    });
+    return { orders, bySource: by, editedOrders: edited, editedSessions };
+  }
+
   /** Historical working windows (platform x zone x time of day) with their per-hour economics. */
   function simWindows(rep) {
     return rep.combos.filter(c => c.hours > 0).map(c => ({
@@ -554,12 +679,12 @@
       const h = plan.hours && plan.hours[w.key] != null ? Math.max(0, plan.hours[w.key]) : w.hoursPerDay;
       hrs += h; gross += h * w.grossPerHr; fuel += h * w.fuelPerHr * fuelK; maint += h * w.maintPerHr; data += h * w.dataPerHr;
     });
-    const daysPerMonth = dpw * 30 / 7, opDay = gross - fuel - maint - data, emiMonth = rep.profile.fixedPerDay * 30;
+    const daysPerMonth = dpw * 30 / 7, opDay = gross - fuel - maint - data, emiMonth = fixedDaily(rep.profile) * 30;
     const opMonth = opDay * daysPerMonth, cashMonth = opMonth - emiMonth, hoursMonth = hrs * daysPerMonth;
     return { hoursPerDay: hrs, daysPerWeek: dpw, daysPerMonth, grossDay: gross, fuelDay: fuel, maintDay: maint, dataDay: data, opDay, opMonth, emiMonth, cashMonth, hoursMonth,
       perHr: hoursMonth > 0 ? cashMonth / hoursMonth : 0, opPerHr: hrs > 0 ? opDay / hrs : 0 };
   }
 
-  const API = { planDay, areaSwitch, weeks, weeklyCoach, haversine, addFix, pairShifts, applyShifts, measuredDeadKm, sensitivity, fuelKm, simulate, simWindows, orderCheck, planNow, fairFloor, dayReceipt, expenseSplit, fuelFromFills, VEHICLES, DAYPARTS, DAYPART_HOURS, daypartOf, defaultProfile, enrich, aggregate, analyze, statementData, median, round };
+  const API = { periods, reconcile, comparePlatforms, provenance, bootstrapRate, costPerKm, fixedDaily, maintKm, TRAFFIC, planDay, areaSwitch, weeks, weeklyCoach, haversine, addFix, pairShifts, applyShifts, measuredDeadKm, sensitivity, fuelKm, simulate, simWindows, orderCheck, planNow, fairFloor, dayReceipt, expenseSplit, fuelFromFills, VEHICLES, DAYPARTS, DAYPART_HOURS, daypartOf, defaultProfile, enrich, aggregate, analyze, statementData, median, round };
   if (typeof module !== 'undefined' && module.exports) module.exports = API; else root.TW = Object.assign(root.TW || {}, API);
 })(typeof window !== 'undefined' ? window : globalThis);

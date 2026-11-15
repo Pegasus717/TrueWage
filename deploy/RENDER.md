@@ -16,3 +16,18 @@ Notes
 * All rider data is in Supabase, so redeploying or restarting never loses anything.
 * Every `git push` to `main` redeploys automatically (`autoDeploy`).
 * Other hosts work too: Railway, Fly.io or the Vultr guide in `VULTR.md`. Anything that runs `python server.py` with the same environment variables works.
+
+## Backups and uptime alerts (GitHub, free)
+
+Two workflows are in `.github/workflows/`:
+* `uptime.yml` checks `/api/health/ready` every 10 minutes. If the site or its database is down, the run fails and GitHub e-mails you. It also keeps the free Render instance awake. To check a different address, add a repository variable `TRUEWAGE_URL`.
+* `backup.yml` makes an encrypted copy of the database every night and keeps it for 14 days (Actions > backup > the latest run > Artifacts). It does nothing until you add two repository secrets (Settings > Secrets and variables > Actions): `DATABASE_URL` (the Supabase **Session pooler** string, because GitHub cannot reach the direct address) and `BACKUP_PASSPHRASE` (a long random phrase; keep a copy somewhere safe, backups cannot be opened without it).
+
+To check a backup, download it, decrypt it and run the restore drill:
+
+```bash
+openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in truewage-YYYYMMDD.json.gz.enc -out backup.json.gz
+python backup.py drill backup.json.gz
+```
+
+In the app, an admin (a phone number listed in `TRUEWAGE_ADMIN_PHONES`) sees a System panel with uptime, database speed, recent errors and a backup download button.

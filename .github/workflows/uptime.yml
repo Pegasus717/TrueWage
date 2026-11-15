@@ -1,0 +1,22 @@
+name: uptime
+# Every 10 minutes: ask the live site whether it and its database are up. If not, this run fails and GitHub emails the repository owner.
+# It also keeps a free Render instance awake. Set a repository variable TRUEWAGE_URL to override the address.
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check readiness
+        env:
+          URL: ${{ vars.TRUEWAGE_URL || 'https://truewage-0p3b.onrender.com' }}
+        run: |
+          for i in 1 2 3 4; do
+            code=$(curl -s -o body.json -w '%{http_code}' --max-time 60 "$URL/api/health/ready" || true)
+            if [ "$code" = "200" ] && grep -q '"dbOk": true' body.json; then echo "up: $(cat body.json)"; exit 0; fi
+            echo "attempt $i: HTTP $code"; sleep 20   # a sleeping free instance needs a minute to wake
+          done
+          echo "TrueWage did not answer as ready at $URL"; cat body.json || true; exit 1

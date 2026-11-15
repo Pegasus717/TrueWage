@@ -16,6 +16,10 @@ services:
         value: "1"
       - key: TRUEWAGE_COOKIE_SECURE
         value: "1"
+      - key: TRUEWAGE_LOG                # one JSON line per API request in Render's logs (no phone numbers, IPs or bodies)
+        value: "1"
+      - key: TRUEWAGE_METRICS_TOKEN      # optional: lets an uptime/metrics service read /api/metrics (Authorization: Bearer <token>)
+        sync: false
       - key: TRUEWAGE_MODEL
         value: claude-haiku-5-5
       - key: TRUEWAGE_EXTRACT_MODEL

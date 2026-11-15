@@ -3,12 +3,13 @@
   'use strict';
   const { t } = I18N;
   const T = TW, D = TWDemo, R = TWReader;
+  const APP_VERSION = '3.0.0';
   const $ = (s, r) => (r || document).querySelector(s);
   const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const inr = n => (Math.round(n) < 0 ? '−' : '') + '₹' + Math.abs(Math.round(n)).toLocaleString('en-IN');
   const rd = n => Math.round(n);
-  const LOC = { en: 'en-IN', hi: 'hi-IN', te: 'te-IN', ta: 'ta-IN' };
+  const LOC = { en: 'en-IN', hi: 'hi-IN', te: 'te-IN', ta: 'ta-IN', kn: 'kn-IN', mr: 'mr-IN', bn: 'bn-IN' };
 
   const ICON = {
     home: '<path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/>',
@@ -36,14 +37,14 @@
     sessions: [], profile: T.defaultProfile('petrol'), hashes: [], reader: null, lastBatch: [], shared: false,
     rider: { name: '', phone4: '' }, lang: 'en', report: null, tab: 'home', demo: false,
     day: null, goal: 800, simHour: null, oc: null, fairTarget: null, wi: { hours: {}, days: null, fuel: 0 }, pending: null,
-    insSeg: 'coach', city: 'Hyderabad', citySeg: 'map', advAll: false, fullCalc: false, sheet: null, vehicleOk: false, tourDone: false, big: false, shifts: [], shift: null, meas: null, expenses: [], fills: null, user: null, ver: 0, authMode: 'register'
+    insSeg: 'coach', city: 'Hyderabad', citySeg: 'map', advAll: false, fullCalc: false, sheet: null, vehicleOk: false, tourDone: false, big: false, shifts: [], shift: null, meas: null, expenses: [], gone: [], payouts: [], lastHashes: [], setKind: 'week', fills: null, user: null, ver: 0, authMode: 'register'
   };
-  const ui = { busy: false, msg: null, thumbs: null, open: new Set(), chat: [], ai: false, listening: false, thinking: false, sync: 'idle' };
+  const ui = { busy: false, msg: null, thumbs: null, open: new Set(), chat: [], ai: false, listening: false, thinking: false, sync: 'idle', undo: [], logEdit: null, logSel: new Set(), setOpen: new Set() };
 
   /* ---------- persistence (best-effort; the app works without it) ---------- */
   const KEY = 'truewage.v3';
-  const PERSIST = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shared', 'rider', 'lang', 'demo', 'goal', 'vehicleOk', 'tourDone', 'big', 'shifts', 'shift', 'city', 'expenses'];
-const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shared', 'rider', 'lang', 'demo', 'goal', 'vehicleOk', 'tourDone', 'big', 'shifts', 'city', 'expenses'];
+  const PERSIST = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shared', 'rider', 'lang', 'demo', 'goal', 'vehicleOk', 'tourDone', 'big', 'shifts', 'shift', 'city', 'expenses', 'gone', 'payouts', 'lastHashes'];
+const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shared', 'rider', 'lang', 'demo', 'goal', 'vehicleOk', 'tourDone', 'big', 'shifts', 'city', 'expenses', 'gone', 'payouts'];
   const LOCALKEY = () => (S.user ? 'truewage.u' + S.user.id : KEY);
   function save() {
     try { const o = {}; PERSIST.forEach(k => o[k] = S[k]); localStorage.setItem(LOCALKEY(), JSON.stringify(o)); } catch (e) { /* private mode */ }
@@ -53,8 +54,14 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     try {
       const raw = localStorage.getItem(KEY), j = JSON.parse(raw || 'null');
       if (j) PERSIST.forEach(k => { if (j[k] !== undefined) S[k] = j[k]; });
-      else { const nl = (navigator.language || '').slice(0, 2); if (['hi', 'te', 'ta'].includes(nl)) S.lang = nl; } // first visit: use the phone's language
+      else { const nl = (navigator.language || '').slice(0, 2); if (['hi', 'te', 'ta', 'kn', 'mr', 'bn'].includes(nl)) S.lang = nl; } // first visit: use the phone's language
     } catch (e) { /* ignore */ }
+    normalizeState();
+  }
+  /** Older saved data may lack fields added later: fill them in so every screen can rely on them. */
+  function normalizeState() {
+    S.profile = Object.assign(T.defaultProfile(S.profile && S.profile.vehicle), S.profile || {});
+    ['sessions', 'shifts', 'hashes', 'lastBatch', 'expenses', 'gone', 'payouts', 'lastHashes'].forEach(k => { if (!Array.isArray(S[k])) S[k] = []; });
   }
   function toast(msg) { const el = $('#toast'); el.textContent = msg; el.hidden = false; clearTimeout(toast._t); toast._t = setTimeout(() => el.hidden = true, 4200); }
   /* Effective inputs: tracked shifts fill in missing online time, and once 3 shifts are paired with screenshots the
@@ -91,21 +98,36 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
   const rerender = () => setTab(S.tab, true);
 
   /* ---------- shared pieces ---------- */
+  function costPrevText() { const c = T.costPerKm(S.profile); return t('cost_prev', { km: c.perKm.toFixed(2), all: c.perKmAll.toFixed(2), day: inr(c.fixedDay) }); }
   function costsHTML() {
-    const p = S.profile;
-    const f = (k, label, step) => `<div class="field"><label>${t(label)}</label><input type="number" inputmode="decimal" step="${step || 'any'}" min="0" data-cost="${k}" value="${p[k]}"></div>`;
-    const veh = ['petrol', 'ev', 'cng', 'car'].map(v => `<option value="${v}" ${p.vehicle === v ? 'selected' : ''}>${t('v_' + v)}</option>`).join('');
-    return `<div class="field"><label>${t('vehicle')}</label><select data-cost="vehicle">${veh}</select></div>` +
-      f('fixedPerDay', 'fixed', 10) + f('fuelPrice', 'fuel_price') + f('mileage', 'mileage') +
-      `<div class="field"><label>${t('cal_field')}</label><input type="number" inputmode="decimal" step="0.1" min="0" data-cost="fuelPerKmOverride" value="${p.fuelPerKmOverride || ''}" placeholder="\u2013"></div>` + f('maintPerKm', 'maint', 0.05) + f('deadKm', 'dead', 0.05) + f('dataPerHour', 'datacost', 0.5) + f('minWage', 'minwage', 5);
+    const p = S.profile, rented = p.ownership === 'rented', cycle = p.vehicle === 'cycle', ev = p.vehicle === 'ev';
+    const f = (k, label, step) => `<div class="field"><label>${t(label)}</label><input type="number" inputmode="decimal" step="${step || 'any'}" min="0" data-cost="${k}" value="${p[k] || ''}" placeholder="0"></div>`;
+    const sel = (k, label, opts) => `<div class="field"><label>${t(label)}</label><select data-cost="${k}">${opts.map(([v, l]) => `<option value="${v}" ${p[k] === v ? 'selected' : ''}>${t(l)}</option>`).join('')}</select></div>`;
+    const wide = html => `<div style="grid-column:1/-1">${html}</div>`;
+    let h = sel('vehicle', 'vehicle', ['petrol', 'ev', 'cng', 'car', 'cycle'].map(v => [v, 'v_' + v])) + sel('ownership', 'own_h', [['owned', 'own_owned'], ['rented', 'own_rented']]);
+    if (!cycle) h += f('fuelPrice', 'fuel_price') + f('mileage', 'mileage') + `<div class="field"><label>${t('cal_field')}</label><input type="number" inputmode="decimal" step="0.1" min="0" data-cost="fuelPerKmOverride" value="${p.fuelPerKmOverride || ''}" placeholder="–"></div>` + sel('traffic', 'traffic_h', [['light', 'traffic_light'], ['normal', 'traffic_normal'], ['heavy', 'traffic_heavy']]);
+    if (rented) h += wide(`<p class="note">${t('cost_rented_note')}</p>`) + f('rentPerDay', 'rent_day', 10);
+    else {
+      h += wide(`<label class="rc-ack" style="margin:4px 0"><input type="checkbox" data-cost="detailWear" ${p.detailWear ? 'checked' : ''}><span>${t('wear_detail')}</span></label>`);
+      h += p.detailWear ? f('tyrePrice', 'wear_tyre_price', 50) + f('tyreLife', 'wear_tyre_life', 500) + f('oilPrice', 'wear_oil_price', 50) + f('oilEvery', 'wear_oil_every', 100) + (ev ? f('batteryPrice', 'wear_bat_price', 500) + f('batteryLife', 'wear_bat_life', 1000) : '') : f('maintPerKm', 'maint', 0.05);
+      h += f('emiPerMonth', 'emi_month', 100) + f('insurancePerYear', 'ins_year', 100);
+    }
+    h += f('fixedPerDay', 'fixed_other', 10) + f('deadKm', 'dead', 0.05) + f('dataPerHour', 'datacost', 0.5) + f('minWage', 'minwage', 5);
+    return h + wide(`<p class="note" id="cost-prev">${esc(costPrevText())}</p>`);
   }
-  function bindCosts(root) {
+  const OPTIONAL_COSTS = new Set(['fuelPerKmOverride', 'fixedPerDay', 'emiPerMonth', 'insurancePerYear', 'rentPerDay', 'tyrePrice', 'tyreLife', 'oilPrice', 'oilEvery', 'batteryPrice', 'batteryLife', 'maintPerKm']);
+  /** again() redraws the form (needed when a choice changes which fields exist); every = redraw after every edit too (the Insights tab shows the results). */
+  function bindCosts(root, again, every) {
     $$('[data-cost]', root).forEach(inp => inp.addEventListener('change', () => {
-      const k = inp.dataset.cost;
-      if (k === 'vehicle') { const d = T.defaultProfile(inp.value); S.profile = Object.assign({}, S.profile, { vehicle: inp.value, mileage: d.mileage, fuelPrice: d.fuelPrice, maintPerKm: d.maintPerKm, deadKm: d.deadKm, fuelPerKmOverride: 0 }); S.vehicleOk = true; $('#sheet-body') && S.sheet === 'costs' && renderSheet(); }
-      else if (k === 'fuelPerKmOverride' && inp.value.trim() === '') S.profile[k] = 0;
+      const k = inp.dataset.cost; let structural = false;
+      if (k === 'vehicle') { const d = T.defaultProfile(inp.value); S.profile = Object.assign({}, S.profile, { vehicle: inp.value, mileage: d.mileage, fuelPrice: d.fuelPrice, maintPerKm: d.maintPerKm, deadKm: d.deadKm, fuelPerKmOverride: 0 }); structural = true; }
+      else if (k === 'ownership' || k === 'traffic') { S.profile[k] = inp.value; structural = true; }
+      else if (k === 'detailWear') { S.profile.detailWear = inp.checked ? 1 : 0; structural = true; }
+      else if (inp.value.trim() === '' && OPTIONAL_COSTS.has(k)) S.profile[k] = 0;
       else { const v = parseFloat(inp.value); if (isFinite(v) && v >= 0 && !(k === 'mileage' && v === 0)) S.profile[k] = v; else inp.value = S.profile[k] || ''; }
       S.vehicleOk = true; recompute(); resetWi();
+      const pv = $('#cost-prev', root); if (pv) pv.textContent = costPrevText();
+      if (again && (structural || every)) again();
     }));
   }
 
@@ -123,7 +145,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     return list.map((a, n) => { const [k, sev] = TAG[a.i.key] || ['tg_watch', 'warn']; return `<div class="adv"><div><span class="tag ${sev}">${t(k)}</span><p>${esc(a.txt)}</p></div><button class="ibtn" data-spk="${n}" aria-label="${t('speak')}">${ic('volume')}</button></div>`; }).join('');
   }
   const bindSpeak = (root, list) => $$('[data-spk]', root).forEach(b => b.onclick = () => speak([list[+b.dataset.spk].txt]));
-  function speakable(txt) { const word = { en: 'rupees', hi: 'रुपये', te: 'రూపాయలు', ta: 'ரூபாய்' }[S.lang] || 'rupees'; return txt.replace(/₹\s?([\d,]+)/g, '$1 ' + word); }
+  function speakable(txt) { const word = { en: 'rupees', hi: 'रुपये', te: 'రూపాయలు', ta: 'ரூபாய்', kn: 'ರೂಪಾಯಿ', mr: 'रुपये', bn: 'টাকা' }[S.lang] || 'rupees'; return txt.replace(/₹\s?([\d,]+)/g, '$1 ' + word); }
   function speak(texts) {
     if (!('speechSynthesis' in window)) { toast('Voice is not supported on this browser.'); return; }
     speechSynthesis.cancel();
@@ -306,7 +328,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
           ${shiftCardHTML(rep)}
           <div class="rows"><button class="btn sm alt" id="share">${ic('share')}${t('share_btn')}</button><button class="btn sm alt" id="spk-day">${ic('volume')}${t('speak')}</button></div>
           ${accuracyHTML(rep)}
-          <div class="assume"><span>${t('assume_h')}: <b>${esc(vlabel)}</b> · ${inr(p.fuelPrice)} · ${p.mileage} km · EMI ${inr(p.fixedPerDay)}/${t('days').replace(/s$/, '')}</span><button class="link" id="a-costs">${t('change')}</button></div>
+          <div class="assume"><span>${t('assume_h')}: <b>${esc(vlabel)}</b> · ${p.vehicle === 'cycle' ? '' : inr(p.fuelPrice) + ' · ' + p.mileage + ' km · '}EMI ${inr(T.fixedDaily(p))}/${t('days').replace(/s$/, '')}</span><button class="link" id="a-costs">${t('change')}</button></div>
         </div>
         <div class="stack">
           <section class="card o-where"><div class="rows between" style="margin-bottom:4px"><h3 class="h3">${t('where_went')}</h3><button class="link" id="a-full">${S.fullCalc ? t('imp_hide') : t('full_calc')}</button></div>
@@ -343,6 +365,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     const svl = $('#sv-log', v); if (svl) svl.onclick = () => { ui.expCat = 'service'; openSheet('expenses'); };
     const sve = $('#sv-every', v); if (sve) sve.onchange = () => { S.profile.serviceEvery = Math.max(500, Math.min(20000, parseFloat(sve.value) || 3000)); save(); if (S.user) scheduleSync(); renderHome(); };
     const wm = $('#wk-more', v); if (wm) wm.onclick = () => { S.insSeg = 'coach'; setTab('insights'); };
+    const wst = $('#wk-settle', v); if (wst) wst.onclick = () => { S.insSeg = 'settle'; setTab('insights'); };
   }
 
   function planCard(rep, plan) {
@@ -390,7 +413,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
   function weekCardHTML(rep) {
     const c = T.weeklyCoach(rep); if (!c) return '';
     const dl = c.deltaPerHr;
-    return `<section class="card o-week"><div class="rows between"><h3 class="h3">${t('wk_h')}</h3><button class="link" id="wk-more">${t('more_advice')}</button></div>
+    return `<section class="card o-week"><div class="rows between"><h3 class="h3">${t('wk_h')}</h3><button class="link" id="wk-more">${t('more_advice')}</button></div><p style="margin-top:2px"><button class="link" id="wk-settle">${t('set_open')}</button></p>
       <p style="margin-top:6px">${esc(t('wk_sum', { days: c.cur.days, cash: inr(c.cur.net), hr: inr(c.cur.perHr) }))}${dl !== null && Math.abs(dl) >= 1 ? ' ' + esc(t(dl > 0 ? 'wk_up' : 'wk_down', { d: inr(Math.abs(dl)) })) : ''}</p></section>`;
   }
   function goalCard(rep) {
@@ -489,13 +512,15 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     const tt = rep.total, d = rep.daysWorked, dq = rep.dataQuality;
     v.innerHTML = `<h2 class="h2"><span class="hl num">${inr(tt.perHr)}</span> ${t('per_hr_real')}</h2>
       <p class="dq ${dq.level}">${t('dq_based', { days: dq.days, orders: dq.orders, hours: rd(dq.hours) })} · ${t('dq_' + dq.level)}</p>
-      <div style="margin:16px 0 18px">${seg('iseg', [['coach', t('sg_coach')], ['advice', t('sg_advice')], ['when', t('sg_when')], ['costs', t('sg_costs')], ['wi', t('wi_tab')]], S.insSeg)}</div><div id="ibody"></div>`;
+      <div style="margin:16px 0 18px">${seg('iseg', [['coach', t('sg_coach')], ['advice', t('sg_advice')], ['when', t('sg_when')], ['costs', t('sg_costs')], ['plat', t('sg_plat')], ['settle', t('sg_settle')], ['wi', t('wi_tab')]], S.insSeg)}</div><div id="ibody"></div>`;
     $$('#iseg button', v).forEach(b => b.onclick = () => { S.insSeg = b.dataset.s; renderInsights(); });
     const body = $('#ibody', v);
     if (S.insSeg === 'coach') insCoach(body, rep);
     else if (S.insSeg === 'advice') insAdvice(body, rep);
     else if (S.insSeg === 'when') insWhen(body, rep);
     else if (S.insSeg === 'costs') insCosts(body, rep);
+    else if (S.insSeg === 'plat') insPlat(body, rep);
+    else if (S.insSeg === 'settle') insSettle(body, rep);
     else whatifBody(body);
   }
   function insCoach(b, rep) {
@@ -546,8 +571,69 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
       <section class="card" style="margin-top:20px"><h3 class="h3">${t('km_unpaid')}: ${rd(tt.deadKmAbs)} km \u00B7 ${inr(tt.deadCost)}</h3><p class="note" style="margin-top:6px">${S.meas && S.meas.reliable ? `<span class="pill">${t('sh_badge')}</span> ${esc(t('sh_measured', { f: S.meas.factor.toFixed(2), n: S.meas.pairs }))}` : esc(t('sh_assumed', { f: S.profile.deadKm }))}</p></section>
       <section class="card" style="margin-top:20px"><h3 class="h3" style="margin-bottom:12px">${t('costs_h')}</h3><div class="grid2" id="costs2">${costsHTML()}</div>
         <p class="note" style="margin-top:12px">Break-even per km: ${inr(rep.breakEvenPerKm)} (fuel + repairs, including unpaid riding). ${rd(rep.belowBEPct)}% of your orders paid less.</p></section>`;
-    const c2 = $('#costs2', b); bindCosts(c2);
-    $$('[data-cost]', c2).forEach(i => i.addEventListener('change', () => { if (i.dataset.cost !== 'vehicle') renderInsights(); else renderInsights(); }));
+    bindCosts($('#costs2', b), () => renderInsights(), true);
+  }
+
+  /* ---------- platform comparison ---------- */
+  function insPlat(b, rep) {
+    const cp = T.comparePlatforms(rep), rows = cp.rows, mw = rep.profile.minWage;
+    if (!rows.length) { b.innerHTML = `<p class="dq low">${t('wk_none')}</p>`; return; }
+    const lo = Math.min(0, ...rows.map(r => r.lo != null ? r.lo : r.perHr), mw), hi = Math.max(1, ...rows.map(r => r.hi != null ? r.hi : r.perHr), mw), span = hi - lo || 1, pos = v => +((v - lo) / span * 100).toFixed(1);
+    const card = r => `<div class="pf-row"><div class="rows between"><b>${esc(r.platform)}</b><span class="num pf-big ${r.perHr < mw ? 'bad' : 'good'}">${inr(r.perHr)}<small>/h</small></span></div>
+        <div class="pf-bar" role="img" aria-label="${esc(r.platform)} ${inr(r.perHr)}/h"><i class="pf-min" style="left:${pos(mw)}%"></i>${r.enough ? `<i class="pf-range" style="left:${pos(r.lo)}%;width:${Math.max(1, pos(r.hi) - pos(r.lo))}%"></i>` : ''}<i class="pf-dot" style="left:${pos(r.perHr)}%"></i></div>
+        <small class="note">${r.enough ? esc(t('pc_range', { lo: inr(r.lo), hi: inr(r.hi) })) : esc(t('pc_norange'))} · ${t('shown')} ${inr(r.appPerHr)}/h</small>
+        <div class="pf-chips"><span>${r.days} ${t('days')}</span><span>${rd(r.hours)} ${t('hours')}</span><span>${r.orders} ${t('orders_n')}</span><span>${esc(t('pc_keep', { p: rd(r.keepRatio * 100) }))}</span><span>${esc(t('pc_avgpay', { v: inr(r.avgPay) }))}</span><span>${esc(t('pc_wait', { p: rd(r.waitShare * 100) }))}</span>${r.deductionPct >= 1 ? `<span>${esc(t('pc_ded', { p: rd(r.deductionPct) }))}</span>` : ''}</div></div>`;
+    const dp = cp.byDaypart.filter(d => d.best), clear = dp.filter(d => d.verdict === 'clear');
+    const line = d => {
+      const range = T.DAYPART_HOURS[d.daypart];
+      const txt = d.verdict === 'clear' ? t('pc_clear', { a: d.best.platform, x: inr(d.best.perHr), b: d.runner.platform, y: inr(d.runner.perHr) }) : d.verdict === 'close' ? t('pc_close', { a: d.best.platform, b: d.runner.platform, d: inr(d.margin) }) : t('pc_only', { a: d.best.platform, x: inr(d.best.perHr) });
+      return `<div class="hrow"><span>${esc(t('dp_' + d.daypart))} · ${esc(range)}</span><small style="flex:2;text-align:right">${esc(txt)}</small></div>`;
+    };
+    b.innerHTML = `<p class="muted" style="max-width:62ch">${esc(t('pc_p'))}</p>
+      ${rows.length < 2 ? `<div class="status">${esc(t('pc_one'))}</div>` : ''}
+      <section class="card" style="margin-top:12px">${rows.map(card).join('')}<p class="note" style="margin-top:10px">${esc(t('pc_help', { mw: inr(mw) }))}</p></section>
+      ${dp.length ? `<section class="card" style="margin-top:16px"><h3 class="h3">${esc(t('pc_dp_h'))}</h3>${clear.length ? `<p class="note" style="margin:4px 0 8px"><b>${esc(t('pc_sugg', { list: clear.map(d => d.best.platform + ' (' + T.DAYPART_HOURS[d.daypart] + ')').join(', ') }))}</b></p>` : ''}<div class="hist">${dp.map(line).join('')}</div><p class="note" style="margin-top:8px">${esc(t('pc_dp_note'))}</p></section>` : ''}`;
+  }
+
+  /* ---------- weekly / monthly settlement and payout check ---------- */
+  function insSettle(b, rep) {
+    const kind = S.setKind === 'month' ? 'month' : 'week', list = T.periods(rep, kind).slice().reverse().slice(0, 12), open = ui.setOpen, today = localDate(Date.now());
+    const lbl = p => kind === 'month' ? dLabel(p.from, { month: 'long', year: 'numeric' }) : dLabel(p.from, { day: 'numeric', month: 'short' }) + ' – ' + dLabel(p.to, { day: 'numeric', month: 'short' });
+    const delta = p => p.vsPrev ? `<small class="${p.vsPrev.net >= 0 ? 'up' : 'dn'}">${p.vsPrev.net >= 0 ? '▲' : '▼'} ${inr(Math.abs(p.vsPrev.net)).replace('−', '')}</small>` : '';
+    const body = list.map(p => `<tr><td><button class="link" data-open="${p.key}" aria-expanded="${open.has(p.key)}">${esc(lbl(p))}</button>${p.partial ? ` <span class="pill warnp">${esc(t('set_sofar'))}</span>` : ''}<small style="display:block">${p.days} ${t('days')} · ${Math.round(p.hours * 10) / 10} ${t('hours')}</small></td>
+        <td class="num">${inr(p.appShown)}</td><td class="num">${inr(p.appShown - p.net)}</td><td class="num"><b>${inr(p.net)}</b><br>${delta(p)}</td><td class="num">${inr(p.perHr)}</td></tr>
+        ${open.has(p.key) ? `<tr class="sub"><td colspan="5">${p.platforms.map(x => `<div>${esc(x.key)}: ${esc(t('set_kept'))} <b class="num">${inr(x.net)}</b> · ${inr(x.perHr)}/h · ${x.orders} ${t('orders_n')}</div>`).join('')}</td></tr>` : ''}`).join('');
+    const plats = Array.from(new Set(S.sessions.map(x => x.platform))).filter(Boolean).sort();
+    const weeks = T.periods(rep, 'week').slice(-8).reverse(), def = weeks.find(w => !w.partial) || weeks[0];
+    const rec = T.reconcile(S.sessions, S.payouts), pillOf = r => r.status === 'match' ? 'ok' : r.status === 'nodata' ? 'warnp' : 'dupp';
+    const recRows = rec.map(r => `<div class="exp-row"><div><b>${esc(r.platform === 'All' ? t('pay_all') : r.platform)} · ${esc(dLabel(r.from, { day: 'numeric', month: 'short' }))} – ${esc(dLabel(r.to, { day: 'numeric', month: 'short' }))}</b>
+        <small>${esc(t('pay_row', { paid: inr(r.amount), exp: inr(r.expected) }))}</small>
+        <span class="pill ${pillOf(r)}">${esc(r.status === 'match' ? t('pay_match') : r.status === 'nodata' ? t('pay_nodata') : r.status === 'short' ? t('pay_short', { d: inr(Math.abs(r.gap)) }) : t('pay_over', { d: inr(Math.abs(r.gap)) }))}</span></div>
+        <button class="link" data-pdel="${esc(r.id)}" aria-label="${esc(t('pay_del'))}">✕</button></div>`).join('');
+    b.innerHTML = `<div class="rows between" style="margin-bottom:10px">${seg('sekind', [['week', t('set_week')], ['month', t('set_month')]], kind)}</div>
+      <section class="card"><div class="scroll"><table class="cmpt"><thead><tr><th>${esc(t('set_period'))}</th><th>${esc(t('shown'))}</th><th>${esc(t('set_cuts'))}</th><th>${esc(t('set_kept'))}</th><th>${esc(t('set_hr'))}</th></tr></thead><tbody>${body}</tbody></table></div>
+        <p class="note" style="margin-top:8px">${esc(t('set_note'))}</p></section>
+      <section class="card" style="margin-top:20px"><h3 class="h3">${esc(t('pay_h'))}</h3><p class="note" style="margin:4px 0 10px;max-width:62ch">${esc(t('pay_p'))}</p>
+        ${S.demo ? `<div class="status">${esc(t('pay_demo'))}</div>` : `<form id="pay-form" class="stack" novalidate>
+          <div class="grid2"><div class="field"><label for="py-q">${esc(t('pay_quick'))}</label><select id="py-q">${weeks.map(w => `<option value="${w.key}" ${def && w.key === def.key ? 'selected' : ''}>${esc(dLabel(w.from, { day: 'numeric', month: 'short' }) + ' – ' + dLabel(w.to, { day: 'numeric', month: 'short' }))}</option>`).join('')}</select></div>
+            <div class="field"><label for="py-p">${esc(t('pay_platform'))}</label><select id="py-p"><option value="All">${esc(t('pay_all'))}</option>${plats.map(x => `<option>${esc(x)}</option>`).join('')}</select></div></div>
+          <div class="grid2"><div class="field"><label for="py-f">${esc(t('pay_from'))}</label><input id="py-f" type="date" max="${today}" value="${def ? def.from : ''}"></div><div class="field"><label for="py-t">${esc(t('pay_to'))}</label><input id="py-t" type="date" max="${today}" value="${def ? def.to : ''}"></div></div>
+          <div class="field"><label for="py-a">${esc(t('pay_amount'))}</label><input id="py-a" type="number" inputmode="decimal" min="1" step="any"></div>
+          <div class="status err" id="py-err" hidden></div><button class="btn lg block" type="submit">${esc(t('pay_add'))}</button></form>`}
+        ${recRows ? `<h3 class="h3" style="margin-top:16px">${esc(t('pay_list'))}</h3><div class="exp-list">${recRows}</div><p class="note" style="margin-top:8px">${esc(t('pay_note'))}</p>` : ''}</section>`;
+    $$('#sekind button', b).forEach(x => x.onclick = () => { S.setKind = x.dataset.s; renderInsights(); });
+    $$('[data-open]', b).forEach(x => x.onclick = () => { const k = x.dataset.open; if (open.has(k)) open.delete(k); else open.add(k); renderInsights(); });
+    $$('[data-pdel]', b).forEach(x => x.onclick = () => { tomb(x.dataset.pdel); S.payouts = S.payouts.filter(y => y.id !== x.dataset.pdel); save(); renderInsights(); });
+    const form = $('#pay-form', b);
+    if (form) {
+      $('#py-q', b).onchange = e => { const w = weeks.find(x => x.key === e.target.value); if (w) { $('#py-f', b).value = w.from; $('#py-t', b).value = w.to; } };
+      form.onsubmit = e => {
+        e.preventDefault(); const er = $('#py-err', b), amount = parseFloat($('#py-a', b).value), from = $('#py-f', b).value, to = $('#py-t', b).value, ok = x => /^\d{4}-\d{2}-\d{2}$/.test(x);
+        if (!(amount > 0 && amount <= 1e7) || !ok(from) || !ok(to) || from > to || to > today) { er.textContent = t('pay_bad'); er.hidden = false; return; }
+        S.payouts.push({ id: 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), platform: $('#py-p', b).value, from, to, amount, note: '' });
+        save(); toast(t('pay_saved')); renderInsights();
+      };
+    }
   }
 
   /* what-if */
@@ -734,52 +820,69 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
   }
 
   async function buildStatement() {
-    const rep = S.report, st = T.statementData(rep, { name: S.rider.name, phone: S.rider.phone4 ? 'XXXXXX' + S.rider.phone4 : '' });
+    const rep = S.report, prov = T.provenance(S.sessions), st = T.statementData(rep, { name: S.rider.name, phone: S.rider.phone4 ? 'XXXXXX' + S.rider.phone4 : '' }, { provenance: prov });
     const evRoot = S.hashes.length ? await R.sha256Text(S.hashes.slice().sort().join('')) : null;
     st.evidence = { count: S.hashes.length, root: evRoot ? evRoot.slice(0, 16) : null, demo: !!S.demo };
     const hash = await R.sha256Text(JSON.stringify(st)), id = 'TW-' + hash.slice(0, 12).toUpperCase();
     let registered = false;
     try { const r = await fetch('api/statement', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-TW': '1' }, body: JSON.stringify({ id, hash, data: st }) }); registered = r.ok; } catch (e) { /* static hosting */ }
     const base = location.href.split('#')[0], longUrl = base + '#verify=' + b64u(JSON.stringify({ d: st, h: hash })), url = registered ? base + '#verify=' + id : longUrl;
-    const tt = st.totals, f = n => inr(n);
-    $('#paper').innerHTML = `<div class="paper">
-      <div class="rows between" style="align-items:start"><div><h2>Income Statement</h2><small style="color:#555">Self-reported platform earnings · tamper-evident${st.evidence.demo ? ' · DEMO DATA' : ''}</small></div><div style="text-align:right"><b>${esc(id)}</b><br><small>${new Date().toISOString().slice(0, 10)}</small></div></div>
-      <p style="margin-top:14px"><b>${esc(st.rider.name)}</b> ${st.rider.phone ? '· ' + esc(st.rider.phone) : ''}<br><span style="color:#555">Platforms: ${st.platforms.map(esc).join(', ')} · ${st.period.from} to ${st.period.to} · ${st.period.daysWorked} days worked</span></p>
-      ${st.period.short ? `<p class="note" style="color:#94590A"><b>${t('short_period')}</b></p>` : ''}
-      <div class="sg"><div><small>${t('loan_monthly')}</small><b>${f(st.monthly.beforeEmi)}</b></div><div><small>${t('c_cash')} / month</small><b>${f(st.monthly.net)}</b></div>
-        <div><small>${t('loan_emi')}</small><b>${f(st.emiCapacity)}</b></div><div><small>${t('loan_stab')}</small><b>${st.stability}%</b></div></div>
-      <table><tr><td>${t('c_app')}</td><td>${f(tt.appShown)}</td></tr><tr><td>− ${t('c_ded')}</td><td>${f(tt.deductions)}</td></tr><tr><td>− ${t('c_fuel')}</td><td>${f(tt.fuel)}</td></tr>
-        <tr><td>− ${t('c_maint')}</td><td>${f(tt.maint)}</td></tr><tr><td>− ${t('c_data')}</td><td>${f(tt.data)}</td></tr>
-        <tr><td><b>= ${t('c_op')}</b></td><td><b>${f(tt.operatingProfit)}</b></td></tr><tr><td>− ${t('c_fixed')}</td><td>${f(tt.fixed)}</td></tr>
-        <tr><td><b>= ${t('c_cash')} (${rd(tt.hours)} h online, ${tt.orders} orders)</b></td><td><b>${f(tt.net)}</b></td></tr></table>
-      <div style="color:#555;font-weight:600;margin-top:16px">${t('ev_h')}</div>${evidenceTable()}
-      <div class="stamp"><div id="qr"></div><div><div>Verification code <code>${esc(id)}</code></div><small style="color:#555">Scan or open the link to confirm the numbers are untouched.<br>Evidence: ${st.evidence.count} screenshot hashes${st.evidence.root ? ' (root ' + st.evidence.root + ')' : ''}</small></div></div>
-      <p class="note" style="color:#666;margin-top:12px">${t('pdf_disclaimer')}</p></div>
-      <div class="center noprint rows" style="justify-content:center"><button class="btn" id="print">${ic('print')}${t('loan_print')}</button> <button class="btn alt" id="copy">${ic('link')}Copy verify link</button></div>`;
+    $('#paper').innerHTML = statementPaper(st, id, new Date().toISOString().slice(0, 10), '');
     $('#print').onclick = () => window.print();
     $('#copy').onclick = () => { navigator.clipboard && navigator.clipboard.writeText(url).then(() => toast('Link copied')); };
     const qr = $('#qr');
     if (window.QRCode) { try { if (url.length > 1800) throw new Error('too long for QR'); qr.textContent = ''; new QRCode(qr, { text: url, width: 112, height: 112 }); } catch (e) { qr.textContent = id; } } else qr.textContent = id;
   }
+  /** The printed statement. English on purpose: it is handed to a lender. Same layout on screen, on paper and on the public verification page. */
+  function statementPaper(st, id, issued, note) {
+    const f = n => inr(n), mon = k => new Date(k + '-01T00:00:00').toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }), tt = st.totals, ms = st.monthStats || {}, pv = st.provenance, months = st.months || [];
+    const pc = n => pv && pv.orders ? Math.round(n / pv.orders * 100) : 0, bs = pv ? pv.bySource || {} : {}, typical = ms.counted ? ms.avgBeforeEmi : st.monthly.beforeEmi;
+    return `<div class="paper v2">
+      <div class="rows between" style="align-items:start"><div><h2>Income Statement</h2><small style="color:#555">Self-reported platform earnings · tamper-evident${st.evidence && st.evidence.demo ? ' · DEMO DATA' : ''}</small></div><div style="text-align:right"><b>${esc(id)}</b><br><small>${esc(issued)}</small></div></div>
+      <p style="margin-top:14px"><b>${esc(st.rider.name || '')}</b> ${st.rider.phone ? '· ' + esc(st.rider.phone) : ''}<br><span style="color:#555">Platforms: ${st.platforms.map(esc).join(', ')} · ${st.period.from} to ${st.period.to} · ${st.period.daysWorked} days worked</span></p>
+      ${st.period.short ? `<p class="note" style="color:#94590A"><b>${esc(t('short_period'))}</b></p>` : ''}
+      <div class="sg"><div><small>Typical month, before EMI${ms.counted ? ' (average of ' + ms.counted + ' month' + (ms.counted > 1 ? 's' : '') + ')' : ' (projected)'}</small><b>${f(typical)}</b></div>
+        <div><small>Lowest counted month, before EMI</small><b>${ms.lowestBeforeEmi != null ? f(ms.lowestBeforeEmi) : '–'}</b></div>
+        <div><small>EMI the income can carry</small><b>${f(st.emiCapacity)}</b>${st.emiCapacityLow != null ? `<small>${f(st.emiCapacityLow)} on the weakest month</small>` : ''}</div>
+        <div><small>Days at least half a typical day</small><b>${st.stability}%</b></div></div>
+      ${months.length ? `<h3 class="ps">Month by month</h3><table class="mt"><thead><tr><th>Month</th><th>Days</th><th>Hours</th><th>App shown</th><th>Cuts</th><th>Before EMI</th><th>After all costs</th></tr></thead><tbody>
+        ${months.map(m => `<tr><td>${esc(mon(m[0]))}${m[1] < (ms.minDays || 10) ? ' <small>(few days, not counted)</small>' : ''}</td><td>${m[1]}</td><td>${m[2]}</td><td>${f(m[3])}</td><td>${f(m[4])}</td><td>${f(m[5])}</td><td>${f(m[6])}</td></tr>`).join('')}</tbody></table>` : ''}
+      <h3 class="ps">How the figures are built (whole period)</h3>
+      <table><tr><td>${esc(t('c_app'))}</td><td>${f(tt.appShown)}</td></tr><tr><td>− ${esc(t('c_ded'))}</td><td>${f(tt.deductions)}</td></tr><tr><td>− ${esc(t('c_fuel'))}</td><td>${f(tt.fuel)}</td></tr>
+        <tr><td>− ${esc(t('c_maint'))}</td><td>${f(tt.maint)}</td></tr><tr><td>− ${esc(t('c_data'))}</td><td>${f(tt.data)}</td></tr>
+        <tr><td><b>= ${esc(t('c_op'))}</b></td><td><b>${f(tt.operatingProfit)}</b></td></tr><tr><td>− ${esc(t('c_fixed'))}</td><td>${f(tt.fixed)}</td></tr>
+        <tr><td><b>= ${esc(t('c_cash'))} (${rd(tt.hours)} h online, ${tt.orders} orders)</b></td><td><b>${f(tt.net)}</b></td></tr></table>
+      ${st.obligations ? `<p class="note" style="color:#444">Vehicle loan or rent counted: <b>${f(st.obligations.vehicleMonthly)}</b> a month. The EMI figure uses the usual ${st.obligations.foir}% income-to-obligation guideline and is indicative, not an offer.</p>` : ''}
+      ${pv && pv.orders ? `<h3 class="ps">Where the order records came from</h3><table><tr><td>Read from screenshots by AI</td><td>${pc(bs.ai || 0)}%</td></tr><tr><td>Read on the phone (OCR)</td><td>${pc(bs.ocr || 0)}%</td></tr><tr><td>Typed in by the rider</td><td>${pc(bs.manual || 0)}%</td></tr>${pv.editedOrders ? `<tr><td>Orders edited after reading</td><td>${pv.editedOrders} (${pc(pv.editedOrders)}%)</td></tr>` : ''}</table>` : ''}
+      <div style="color:#555;font-weight:600;margin-top:16px">${esc(t('ev_h'))}</div>${evidenceTable()}
+      <div class="stamp"><div id="qr"></div><div><div>Verification code <code>${esc(id)}</code></div><small style="color:#555">Scan or open the link to confirm the numbers are untouched.<br>Evidence: ${st.evidence ? st.evidence.count : 0} screenshot hashes${st.evidence && st.evidence.root ? ' (root ' + st.evidence.root + ')' : ''}</small></div></div>
+      <p class="note" style="color:#666;margin-top:12px">${esc(t('pdf_disclaimer'))}${note || ''}</p></div>
+      <div class="center noprint rows" style="justify-content:center"><button class="btn" id="print">${ic('print')}${esc(t('loan_print'))}</button> <button class="btn alt" id="copy">${ic('link')}Copy verify link</button></div>`;
+  }
 
   async function renderVerify(v) {
-    let ok = false, d = null, hash = '', reg = null;
+    let ok = false, d = null, hash = '', reg = null, created = null;
     try {
       const param = location.hash.slice(8);
       if (/^TW-[0-9A-F]{12}$/.test(param)) {
         const rj = await fetch('api/statement/' + param).then(r => r.ok ? r.json() : null);
-        if (rj && rj.data) { d = rj.data; hash = rj.hash; reg = 'match'; ok = (await R.sha256Text(JSON.stringify(d))) === hash && ('TW-' + hash.slice(0, 12).toUpperCase()) === param; }
+        if (rj && rj.data) { d = rj.data; hash = rj.hash; reg = 'match'; created = rj.created; ok = (await R.sha256Text(JSON.stringify(d))) === hash && ('TW-' + hash.slice(0, 12).toUpperCase()) === param; }
       } else {
         const j = JSON.parse(unb64u(param)); d = j.d; hash = j.h;
         ok = (await R.sha256Text(JSON.stringify(d))) === hash;
-        try { const r = await fetch('api/statement/TW-' + hash.slice(0, 12).toUpperCase()); if (r.ok) { const rj = await r.json(); reg = rj.hash === hash ? 'match' : 'mismatch'; } } catch (e) { /* offline */ }
+        try { const r = await fetch('api/statement/TW-' + hash.slice(0, 12).toUpperCase()); if (r.ok) { const rj = await r.json(); reg = rj.hash === hash ? 'match' : 'mismatch'; created = rj.created; } } catch (e) { /* offline */ }
       }
     } catch (e) { ok = false; }
-    const good = ok && reg !== 'mismatch';
+    const good = ok && reg !== 'mismatch', code = hash ? 'TW-' + hash.slice(0, 12).toUpperCase() : '';
+    const regDate = created ? String(created).slice(0, 10) : '';
     v.innerHTML = `<div class="paper"><h2 class="${good ? 'ok' : 'no'}">${good ? '✔ ' + t('loan_verified') : '✖ ' + t('loan_failed')}</h2>
+      ${d && ok && d.version === 2 ? `<p class="note" style="margin-top:8px">${regDate ? 'Registered ' + esc(regDate) + '. ' : ''}These are the figures exactly as the rider generated them.</p>` : ''}
       ${d && ok ? `<p style="margin-top:12px"><b>${esc(d.rider.name || '')}</b> · ${d.period.from} → ${d.period.to}<br>${t('loan_monthly')}: <b>${inr(d.monthly.beforeEmi != null ? d.monthly.beforeEmi : d.monthly.net)}</b> · ${t('loan_emi')}: <b>${inr(d.emiCapacity)}</b> · ${t('loan_stab')}: ${d.stability}%</p>
+        ${d.monthStats && d.monthStats.counted ? `<p class="note">Average of ${d.monthStats.counted} counted month${d.monthStats.counted > 1 ? 's' : ''} before EMI: <b>${inr(d.monthStats.avgBeforeEmi)}</b> · lowest: <b>${inr(d.monthStats.lowestBeforeEmi)}</b></p>` : ''}
+        ${d.months && d.months.length ? `<table class="mt"><thead><tr><th>Month</th><th>Days</th><th>Before EMI</th><th>After costs</th></tr></thead><tbody>${d.months.map(m => `<tr><td>${esc(new Date(m[0] + '-01T00:00:00').toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }))}</td><td>${m[1]}</td><td>${inr(m[5])}</td><td>${inr(m[6])}</td></tr>`).join('')}</tbody></table>` : ''}
+        ${d.provenance && d.provenance.orders ? `<p class="note">Order records: ${Math.round(((d.provenance.bySource || {}).ai || 0) / d.provenance.orders * 100)}% read by AI from screenshots, ${Math.round(((d.provenance.bySource || {}).ocr || 0) / d.provenance.orders * 100)}% read on the phone, ${Math.round(((d.provenance.bySource || {}).manual || 0) / d.provenance.orders * 100)}% typed in${d.provenance.editedOrders ? ', ' + d.provenance.editedOrders + ' orders edited afterwards' : ''}.</p>` : ''}
         <div style="color:#555;font-weight:600;margin-top:14px">${t('ev_h')}</div>${evidenceTable()}${d.evidence && d.evidence.demo ? '<p class="note"><b>DEMO DATA</b></p>' : ''}` : ''}
-      <p class="note" style="margin-top:12px">Integrity check: ${ok ? '<span class="ok">numbers match code TW-' + hash.slice(0, 12).toUpperCase() + '</span>' : '<span class="no">tampered or corrupted</span>'}<br>
+      <p class="note" style="margin-top:12px">Integrity check: ${ok ? '<span class="ok">numbers match code ' + esc(code) + '</span>' : '<span class="no">tampered or corrupted</span>'}<br>
       Registry check: ${reg === 'match' ? '<span class="ok">registered, hash matches</span>' : reg === 'mismatch' ? '<span class="no">registry hash differs</span>' : 'not reachable (static hosting). Run the server for registry checks.'}</p>
       <p class="note">${t('pdf_disclaimer')}</p><button class="btn alt noprint" style="margin-top:12px" id="vback">${t('back')}</button></div>`;
     $('#vback').onclick = () => { history.replaceState(null, '', location.pathname); rerender(); };
@@ -848,11 +951,25 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     } finally { pushing = false; updateSyncUI(); }
   }
   function unionInto(snap) {
-    const have = new Set(S.sessions.map(x => x.id)), haveS = new Set(S.shifts.map(x => x.id));
-    (snap.sessions || []).forEach(x => { if (!have.has(x.id)) S.sessions.push(x); });
+    const gone = new Map();                                                                  // ids deleted on either device: never bring them back
+    (S.gone || []).concat(snap.gone || []).forEach(g => { if (g && g.id && !((gone.get(g.id) || 0) > (g.ts || 0))) gone.set(g.id, g.ts || 0); });
+    S.gone = Array.from(gone, ([id, ts]) => ({ id, ts }));
+    const at = new Map(S.sessions.map((x, i) => [x.id, i]));
+    (snap.sessions || []).forEach(x => {
+      if (gone.has(x.id)) return;
+      const i = at.get(x.id);
+      if (i === undefined) { at.set(x.id, S.sessions.length); S.sessions.push(x); }
+      else if ((x.rev || 0) > (S.sessions[i].rev || 0)) S.sessions[i] = x;                  // the same day edited on both: the later edit wins
+    });
+    S.sessions = S.sessions.filter(x => !gone.has(x.id));
+    const haveS = new Set(S.shifts.map(x => x.id));
     (snap.shifts || []).forEach(x => { if (!haveS.has(x.id)) S.shifts.push(x); });
     const haveE = new Set((S.expenses || []).map(x => x.id)); S.expenses = S.expenses || [];
-    (snap.expenses || []).forEach(x => { if (!haveE.has(x.id)) S.expenses.push(x); });
+    (snap.expenses || []).forEach(x => { if (!haveE.has(x.id) && !gone.has(x.id)) S.expenses.push(x); });
+    S.expenses = S.expenses.filter(x => !gone.has(x.id));
+    const haveP = new Set((S.payouts || []).map(x => x.id)); S.payouts = S.payouts || [];
+    (snap.payouts || []).forEach(x => { if (!haveP.has(x.id) && !gone.has(x.id)) S.payouts.push(x); });
+    S.payouts = S.payouts.filter(x => !gone.has(x.id));
     S.hashes = Array.from(new Set(S.hashes.concat(snap.hashes || [])));
   }
   async function pullMerge() {      // another device saved first: keep both sets of records
@@ -864,12 +981,12 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
   function adoptServer(d) {
     d = d || {};
     SYNC_KEYS.forEach(k => { if (d[k] !== undefined) S[k] = d[k]; });
-    ['sessions', 'shifts', 'hashes', 'lastBatch'].forEach(k => { if (!Array.isArray(S[k])) S[k] = []; });
+    ['sessions', 'shifts', 'hashes', 'lastBatch', 'expenses', 'gone', 'payouts'].forEach(k => { if (!Array.isArray(S[k])) S[k] = []; });
     S.profile = Object.assign(T.defaultProfile('petrol'), S.profile || {});
     if (!S.rider || typeof S.rider !== 'object') S.rider = { name: '', phone4: '' };
   }
   function freshState() {
-    Object.assign(S, { sessions: [], expenses: [], fills: null, profile: T.defaultProfile('petrol'), hashes: [], reader: null, lastBatch: [], shared: false, rider: { name: '', phone4: '' }, demo: false, goal: 800, vehicleOk: false, tourDone: false, shifts: [], shift: null,
+    Object.assign(S, { sessions: [], expenses: [], gone: [], payouts: [], lastHashes: [], fills: null, profile: T.defaultProfile('petrol'), hashes: [], reader: null, lastBatch: [], shared: false, rider: { name: '', phone4: '' }, demo: false, goal: 800, vehicleOk: false, tourDone: false, shifts: [], shift: null,
       city: 'Hyderabad', report: null, meas: null, day: null, oc: null, pending: null, simHour: null, fairTarget: null, fullCalc: false, advAll: false, insSeg: 'coach', citySeg: 'map', planSeg: 'order' });
     resetWi(); ui.chat = []; ui.thumbs = null; ui.msg = null; ui.open = new Set();
   }
@@ -915,7 +1032,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
       if (e.status === 401) { try { localStorage.removeItem('truewage.last'); } catch (x) { /* ignore */ } return; }
       try {   // server unreachable: open the last signed-in rider's cached dashboard, read-only sync resumes when online
         const last = JSON.parse(localStorage.getItem('truewage.last') || 'null'), c = last && JSON.parse(localStorage.getItem('truewage.u' + last.id) || 'null');
-        if (last && c) { S.user = last; PERSIST.forEach(k => { if (c[k] !== undefined) S[k] = c[k]; }); ui.sync = 'offline'; recompute(); acctBtn(); rerender(); }
+        if (last && c) { S.user = last; PERSIST.forEach(k => { if (c[k] !== undefined) S[k] = c[k]; }); normalizeState(); ui.sync = 'offline'; recompute(); acctBtn(); rerender(); }
       } catch (x) { /* ignore */ }
     }
   }
@@ -1119,7 +1236,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
       nowHour: plan.hour, nowState: plan.state, nextGoodWindow: plan.next ? { from: plan.next.start, to: plan.next.end || 24, area: plan.next.zone, platform: plan.next.platform, realPerHour: R0(plan.next.perHr) } : null,
       moveAdvice: T.areaSwitch(rep, cityFor(S.city).cells).map(x => ({ at: x.p.daypart, from: x.p.from, to: x.p.to, yourPerHour: x.p.a, theirPerHour: x.p.b, source: x.p.src === 'city' ? 'simulated city data' : 'your own history' })),
       tracked: { shifts: S.shifts.length, hours: R0(S.shifts.reduce((a, x) => a + x.onlineMin, 0) / 60), km: R0(S.shifts.reduce((a, x) => a + x.km, 0)), unpaidRidingFactor: Math.round(rep.profile.deadKm * 100) / 100, unpaidRidingMeasuredByGps: !!(S.meas && S.meas.reliable) },
-      fairWagePerHour: p.minWage, assumptions: { vehicle: p.vehicle, fuelPricePerUnit: p.fuelPrice, kmPerUnit: p.mileage, emiPerDay: p.fixedPerDay, unpaidKmFactor: p.deadKm }
+      fairWagePerHour: p.minWage, assumptions: { vehicle: p.vehicle, fuelPricePerUnit: p.fuelPrice, kmPerUnit: p.mileage, emiPerDay: T.fixedDaily(p), unpaidKmFactor: p.deadKm }
     };
   }
   function offlineAnswer(det) {
@@ -1194,16 +1311,16 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
 
   /* ---------- sheet: add screenshots (pick -> auto-read -> confirm), costs, data ---------- */
   function openSheet(kind) { S.sheet = kind || 'import'; $('#sheet').hidden = false; document.body.style.overflow = 'hidden'; renderSheet(); syncFab(); if (S.sheet !== 'ask' && S.sheet !== 'auth' && S.sheet !== 'recovery') $('#sheet-x').focus(); }
-  function closeSheet() { if (S.sheet === 'recovery' && ui.recovery && !ui.recovery.ack) { toast(t('rc_saved_chk')); const a = $('#rc-ack'); if (a) a.focus(); return; } const was = S.sheet; S.sheet = null; $('#sheet').hidden = true; document.body.style.overflow = ''; if ('speechSynthesis' in window) speechSynthesis.cancel(); if (was === 'costs' || was === 'data') rerender(); syncFab(); }
+  function closeSheet() { if (S.sheet === 'recovery' && ui.recovery && !ui.recovery.ack) { toast(t('rc_saved_chk')); const a = $('#rc-ack'); if (a) a.focus(); return; } const was = S.sheet; S.sheet = null; $('#sheet').hidden = true; document.body.style.overflow = ''; if ('speechSynthesis' in window) speechSynthesis.cancel(); if (was === 'log') { ui.logEdit = null; ui.logSel.clear(); ui.logAll = false; } if (was === 'costs' || was === 'data' || was === 'log') rerender(); syncFab(); }
   const syncFab = () => { const f = $('#fab'); if (f) f.hidden = !S.report || !!S.sheet; };
   function renderSheet() {
     const b = $('#sheet-body');
-    $('#sheet-t').textContent = S.sheet === 'costs' ? t('costs_h') : S.sheet === 'data' ? t('set_h') : S.sheet === 'ask' ? t('ask_h') : S.sheet === 'recovery' ? t('rc_h') : S.sheet === 'auth' ? t(S.authMode === 'register' ? 'au_register' : S.authMode === 'recover' ? 'au_recover_h' : 'au_login') : S.sheet === 'account' ? t('au_account') : S.sheet === 'expenses' ? t('exp_h') : S.sheet === 'history' ? t('hist_h') : S.sheet === 'admin' ? t('adm_h') : t('add_shots');
-    if (S.sheet === 'costs') costsSheet(b); else if (S.sheet === 'data') dataSheet(b); else if (S.sheet === 'ask') askSheet(b); else if (S.sheet === 'recovery') recoverySheet(b); else if (S.sheet === 'auth') authSheet(b); else if (S.sheet === 'account') accountSheet(b); else if (S.sheet === 'expenses') expensesSheet(b); else if (S.sheet === 'history') historySheet(b); else if (S.sheet === 'admin') adminSheet(b); else importSheet(b);
+    $('#sheet-t').textContent = S.sheet === 'costs' ? t('costs_h') : S.sheet === 'data' ? t('set_h') : S.sheet === 'ask' ? t('ask_h') : S.sheet === 'recovery' ? t('rc_h') : S.sheet === 'auth' ? t(S.authMode === 'register' ? 'au_register' : S.authMode === 'recover' ? 'au_recover_h' : 'au_login') : S.sheet === 'account' ? t('au_account') : S.sheet === 'expenses' ? t('exp_h') : S.sheet === 'history' ? t('hist_h') : S.sheet === 'log' ? t('log_h') : S.sheet === 'admin' ? t('adm_h') : t('add_shots');
+    if (S.sheet === 'costs') costsSheet(b); else if (S.sheet === 'data') dataSheet(b); else if (S.sheet === 'ask') askSheet(b); else if (S.sheet === 'recovery') recoverySheet(b); else if (S.sheet === 'auth') authSheet(b); else if (S.sheet === 'account') accountSheet(b); else if (S.sheet === 'expenses') expensesSheet(b); else if (S.sheet === 'history') historySheet(b); else if (S.sheet === 'log') logSheet(b); else if (S.sheet === 'admin') adminSheet(b); else importSheet(b);
   }
   function costsSheet(b) {
     b.innerHTML = `<div class="grid2">${costsHTML()}</div><p class="note" style="margin-top:10px">${t('cal_help')}</p>${S.meas && S.meas.reliable ? `<p class="note" style="margin-top:8px"><span class="pill">${t('sh_badge')}</span> ${esc(t('sh_measured', { f: S.meas.factor.toFixed(2), n: S.meas.pairs }))}</p>` : ''}<div class="center"><button class="btn lg" id="c-done">${t('done')}</button></div>`;
-    bindCosts(b); $('#c-done', b).onclick = closeSheet;
+    bindCosts(b, () => renderSheet()); $('#c-done', b).onclick = closeSheet;
   }
   /* ---------- expenses & fuel ---------- */
   const EXP_CATS = ['fuel', 'service', 'parking_toll', 'fine', 'repair', 'other'];
@@ -1236,7 +1353,105 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
       S.expenses.push({ id: 'e' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), date, category: cat.value, amount: amt, litres: cat.value === 'fuel' ? lit : 0, odo: cat.value === 'fuel' || cat.value === 'service' ? odo : 0, note: $('#ex-note', b).value.trim().slice(0, 80) });
       recompute(); scheduleSync(); toast(t('exp_saved')); rerender(); renderSheet();
     };
-    $$('[data-del]', b).forEach(x => x.onclick = () => { S.expenses = S.expenses.filter(e => e.id !== x.dataset.del); recompute(); scheduleSync(); rerender(); renderSheet(); });
+    $$('[data-del]', b).forEach(x => x.onclick = () => { tomb(x.dataset.del); S.expenses = S.expenses.filter(e => e.id !== x.dataset.del); recompute(); scheduleSync(); rerender(); renderSheet(); });
+  }
+
+  /* ---------- edit records: fix a past day, split or merge days, undo ---------- */
+  const snapRecords = () => JSON.stringify({ s: S.sessions, g: S.gone, l: S.lastBatch, h: S.hashes });
+  function pushUndo() { ui.undo.push(snapRecords()); if (ui.undo.length > 10) ui.undo.shift(); }
+  function doUndo() {
+    const x = ui.undo.pop(); if (!x) return;
+    const j = JSON.parse(x); S.sessions = j.s; S.gone = j.g; S.lastBatch = j.l; S.hashes = j.h; S.day = null; ui.logEdit = null; ui.logSel.clear(); resetWi(); recompute(); renderSheet(); toast(t('log_undone'));
+  }
+  /** Remember that an id was deleted, so a second device that still has it does not bring it back when the two are merged. */
+  function tomb(id) { const cut = Date.now() - 90 * 864e5; S.gone = (S.gone || []).filter(g => g.id !== id && g.ts > cut).slice(-2500); S.gone.push({ id, ts: Date.now() }); }
+  const cloneOrders = os => os.map(o => ({ hour: o.hour, zone: o.zone, km: o.km, pay: o.pay, incentive: o.incentive, deduction: o.deduction, durMin: o.durMin }));
+
+  function logSheet(b) {
+    if (S.demo) { b.innerHTML = `<div class="status">${esc(t('log_demo'))}</div><div class="center"><button class="btn lg" id="lg-done">${t('done')}</button></div>`; $('#lg-done', b).onclick = closeSheet; return; }
+    if (ui.logEdit) return logEditor(b);
+    const list = S.sessions.slice().sort((a, c) => a.date < c.date ? 1 : a.date > c.date ? -1 : 0), shown = ui.logAll ? list : list.slice(0, 40), sel = ui.logSel;
+    const lastN = (S.lastBatch || []).filter(id => S.sessions.some(x => x.id === id)).length;
+    b.innerHTML = `<p class="muted" style="max-width:62ch">${esc(t('log_p'))}</p>
+      <div class="rows" style="margin:12px 0">${ui.undo.length ? `<button class="btn sm alt" id="lg-undo">${esc(t('log_undo'))} (${ui.undo.length})</button>` : ''}${lastN ? `<button class="btn sm alt" id="lg-last">${esc(t('log_undo_import', { n: lastN }))}</button>` : ''}<button class="btn sm alt" id="lg-merge" ${sel.size >= 2 ? '' : 'disabled'}>${esc(t('log_merge'))}</button></div>
+      ${list.length ? `<div class="exp-list">${shown.map(x => `<div class="exp-row"><input type="checkbox" data-sel="${esc(x.id)}" ${sel.has(x.id) ? 'checked' : ''} aria-label="${esc(t('log_select'))}"><div><b>${esc(x.platform)} · ${esc(dLabel(x.date, { weekday: 'short', day: 'numeric', month: 'short' }))}</b><small>${x.orders.length} ${t('orders_n')} · ${inr(sessionPay(x))}${x.edited ? ' · ' + esc(t('log_edited')) : ''}</small></div><button class="link" data-open="${esc(x.id)}">${t('imp_edit')}</button></div>`).join('')}</div>${list.length > shown.length ? `<button class="link" id="lg-more">${esc(t('show_all', { n: list.length }))}</button>` : ''}` : `<p class="muted">${esc(t('imp_none'))}</p>`}
+      <div class="center"><button class="btn lg" id="lg-done">${t('done')}</button></div>`;
+    $('#lg-done', b).onclick = closeSheet;
+    const un = $('#lg-undo', b); if (un) un.onclick = doUndo;
+    const mo = $('#lg-more', b); if (mo) mo.onclick = () => { ui.logAll = true; renderSheet(); };
+    $$('[data-sel]', b).forEach(x => x.onchange = () => { if (x.checked) sel.add(x.dataset.sel); else sel.delete(x.dataset.sel); const m = $('#lg-merge', b); if (m) m.disabled = sel.size < 2; });
+    $$('[data-open]', b).forEach(x => x.onclick = () => {
+      const s = S.sessions.find(y => y.id === x.dataset.open); if (!s) return;
+      ui.logEdit = { id: s.id, draft: { platform: s.platform, date: s.date, onlineMin: s.onlineMin || 0, bonus: s.bonus || 0, orders: cloneOrders(s.orders) }, extra: [], pick: new Set() }; renderSheet();
+    });
+    const lastBtn = $('#lg-last', b);
+    if (lastBtn) lastBtn.onclick = () => {
+      if (!confirm(t('log_undo_import_q', { n: lastN }))) return;
+      pushUndo(); const ids = new Set(S.lastBatch); ids.forEach(id => tomb(id));
+      S.sessions = S.sessions.filter(y => !ids.has(y.id)); S.hashes = S.hashes.filter(h => !(S.lastHashes || []).includes(h)); S.lastBatch = []; S.lastHashes = [];
+      S.day = null; resetWi(); recompute(); renderSheet(); toast(t('log_deleted'));
+    };
+    $('#lg-merge', b).onclick = () => {
+      const ss = S.sessions.filter(y => sel.has(y.id));
+      if (ss.length < 2 || new Set(ss.map(y => y.date + '|' + y.platform)).size !== 1) { toast(t('log_merge_bad')); return; }
+      pushUndo(); const keep = ss[0], rest = ss.slice(1);
+      keep.orders = ss.flatMap(y => y.orders).sort((p, q) => p.hour - q.hour); keep.onlineMin = ss.reduce((a, y) => a + (y.onlineMin || 0), 0); keep.bonus = ss.reduce((a, y) => a + (y.bonus || 0), 0); keep.edited = true; keep.rev = Date.now();
+      rest.forEach(y => tomb(y.id)); S.sessions = S.sessions.filter(y => !rest.includes(y)); sel.clear(); S.day = null; resetWi(); recompute(); renderSheet(); toast(t('le_saved'));
+    };
+  }
+
+  function logEditor(b) {
+    const E = ui.logEdit, d = E.draft, plats = R.KNOWN_PLATFORMS.concat(['Unknown']), today = localDate(Date.now());
+    const rows = d.orders.map((o, oi) => {
+      const badf = new Set(R.validateOrder(o)), c = f => badf.has(f) ? ' class="bad"' : '';
+      return `<tr data-oi="${oi}"><td><input type="checkbox" data-pick ${E.pick.has(oi) ? 'checked' : ''} aria-label="${esc(t('log_select'))}"></td><td><input type="time" data-f="hour"${c('hour')} value="${isFinite(o.hour) ? fmtTime(o.hour) : ''}"></td><td><input data-f="zone" maxlength="40" value="${esc(o.zone)}"></td>
+        <td><input type="number" step="0.1" min="0" inputmode="decimal" data-f="km"${c('km')} value="${o.km}"></td><td><input type="number" min="0" inputmode="decimal" data-f="pay"${c('pay')} value="${o.pay}"></td>
+        <td><input type="number" min="0" inputmode="decimal" data-f="incentive"${c('incentive')} value="${o.incentive}"></td><td><input type="number" min="0" inputmode="decimal" data-f="deduction"${c('deduction')} value="${o.deduction}"></td><td><button class="link" data-del aria-label="Delete">✕</button></td></tr>`;
+    }).join('');
+    b.innerHTML = `<div class="editor"><div class="meta"><select data-s="platform" aria-label="${esc(t('le_platform'))}">${plats.map(p => `<option ${p === d.platform ? 'selected' : ''}>${p}</option>`).join('')}</select><input type="date" data-s="date" max="${today}" value="${esc(d.date)}" aria-label="${esc(t('le_date'))}">
+        <label class="note">${esc(t('le_online'))} <input type="number" min="0" max="24" step="0.5" inputmode="decimal" style="width:80px" data-s="online" value="${d.onlineMin ? Math.round(d.onlineMin / 6) / 10 : ''}"></label>
+        <label class="note">${t('th_inc')} (day) <input type="number" min="0" style="width:90px" data-s="bonus" value="${d.bonus || 0}"></label></div>
+      <div class="scroll"><table class="tbl"><thead><tr><th></th><th>${t('th_time')}</th><th>${t('th_zone')}</th><th>${t('th_km')}</th><th>${t('th_pay')}</th><th>${t('th_inc')}</th><th>${t('th_ded')}</th><th></th></tr></thead><tbody>${rows}</tbody>
+        <tfoot><tr><td colspan="8"><button class="link" data-add>${t('add_row')}</button></td></tr></tfoot></table></div></div>
+      ${E.extra.length ? `<div class="status">${esc(t('le_moved', { n: E.extra.reduce((a, g) => a + g.length, 0) }))}</div>` : ''}
+      <div class="rows" style="margin-top:12px"><button class="btn sm alt" id="le-split">${esc(t('le_split'))}</button><button class="btn sm alt" id="le-del">${esc(t('le_delete'))}</button></div>
+      <div class="sticky-save"><button class="btn lg" id="le-save" style="flex:1">${esc(t('le_save'))}</button><button class="btn alt lg" id="le-cancel">${esc(t('le_cancel'))}</button></div>`;
+    $$('[data-s]', b).forEach(inp => inp.addEventListener('change', () => { const k = inp.dataset.s; if (k === 'bonus') d.bonus = Math.max(0, parseFloat(inp.value) || 0); else if (k === 'online') d.onlineMin = Math.round(Math.max(0, parseFloat(inp.value) || 0) * 60); else d[k] = inp.value; }));
+    $$('tbody tr', b).forEach(tr => {
+      const oi = +tr.dataset.oi, o = d.orders[oi];
+      $('[data-pick]', tr).onchange = e => { if (e.target.checked) E.pick.add(oi); else E.pick.delete(oi); };
+      $$('[data-f]', tr).forEach(inp => inp.addEventListener('change', () => {
+        const f = inp.dataset.f;
+        if (f === 'hour') o.hour = R.toHour(inp.value); else if (f === 'zone') o.zone = inp.value; else o[f] = parseFloat(inp.value);
+        if (f !== 'zone') { if (!isFinite(o[f]) && f !== 'hour') o[f] = 0; inp.classList.toggle('bad', R.validateOrder(o).includes(f)); }
+      }));
+      $('[data-del]', tr).onclick = () => { d.orders.splice(oi, 1); E.pick.clear(); renderSheet(); };
+    });
+    $('[data-add]', b).onclick = () => { const l = d.orders[d.orders.length - 1]; d.orders.push({ hour: l ? l.hour + 0.25 : 12, zone: l ? l.zone : 'Unknown', km: 2, pay: 40, incentive: 0, deduction: 0, durMin: 15 }); renderSheet(); };
+    $('#le-cancel', b).onclick = () => { ui.logEdit = null; renderSheet(); };
+    $('#le-split', b).onclick = () => {
+      if (!E.pick.size || E.pick.size >= d.orders.length) { toast(t('le_split_bad')); return; }
+      E.extra.push(d.orders.filter((_, i) => E.pick.has(i))); d.orders = d.orders.filter((_, i) => !E.pick.has(i)); E.pick.clear(); renderSheet();
+    };
+    $('#le-del', b).onclick = () => {
+      if (!confirm(t('le_del_confirm'))) return;
+      pushUndo(); tomb(E.id); S.sessions = S.sessions.filter(y => y.id !== E.id); ui.logEdit = null; S.day = null; resetWi(); recompute(); renderSheet(); toast(t('log_deleted'));
+    };
+    $('#le-save', b).onclick = () => {
+      const orig = S.sessions.find(y => y.id === E.id), groups = [d.orders].concat(E.extra);
+      if (!orig) { ui.logEdit = null; renderSheet(); return; }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(d.date) || d.date > today || groups.some(g => !g.length)) { toast(t('le_need_order')); return; }
+      if (groups.some(g => g.some(o => R.validateOrder(o).length))) { toast(t('imp_bad')); renderSheet(); const x = $('#sheet-body .bad'); if (x) x.focus(); return; }
+      const total = groups.reduce((a, g) => a + g.length, 0), unchanged = !E.extra.length && d.platform === orig.platform && d.date === orig.date && d.onlineMin === (orig.onlineMin || 0) && d.bonus === (orig.bonus || 0) && JSON.stringify(cloneOrders(d.orders)) === JSON.stringify(cloneOrders(orig.orders));
+      if (unchanged) { ui.logEdit = null; renderSheet(); return; }
+      pushUndo(); const now = Date.now(); let given = 0;
+      E.extra.forEach((g, i) => {
+        const share = Math.round(d.onlineMin * g.length / total); given += share;
+        S.sessions.push({ id: 'u' + now + '-s' + i, date: d.date, platform: d.platform, zone: orig.zone || null, onlineMin: share, bonus: 0, source: orig.source, orders: g, edited: true, rev: now });
+      });
+      Object.assign(orig, { date: d.date, platform: d.platform, onlineMin: d.onlineMin - given, bonus: d.bonus, orders: d.orders, edited: true, rev: now });
+      ui.logEdit = null; S.day = null; resetWi(); recompute(); renderSheet(); toast(t('le_saved'));
+    };
   }
 
   /* ---------- history (stored in the rider's database) ---------- */
@@ -1270,6 +1485,30 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     });
     return `<section class="card" style="margin-top:12px"><h3 class="h3">${t('adm_acc_h')}</h3>${rows.join('') || `<p class="muted">${t('hist_empty')}</p>`}</section>`;
   }
+  function systemAdminHTML(sy) {
+    if (!sy) return '';
+    const stamp = ts => new Date(ts * 1000).toLocaleString(LOC[S.lang], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+    const up = n => n >= 86400 ? Math.floor(n / 86400) + ' d' : n >= 3600 ? Math.floor(n / 3600) + ' h' : Math.max(1, Math.floor(n / 60)) + ' min';
+    const stale = sy.lastBackup && Date.now() / 1000 - sy.lastBackup > 3 * 86400;
+    return `<section class="card" style="margin-top:12px"><h3 class="h3">${esc(t('sys_h'))} · v${esc(sy.version)}</h3>
+      <div class="stats"><div><div class="k">${esc(t('sys_up'))}</div><div class="v num">${up(sy.uptimeS)}</div></div><div><div class="k">${esc(t('sys_db'))}</div><div class="v num ${sy.dbOk ? 'good' : 'bad'}">${sy.dbOk ? sy.dbMs + ' ms' : 'DOWN'}</div></div>
+        <div><div class="k">${esc(t('sys_errors'))}</div><div class="v num ${sy.errors.total ? 'bad' : 'good'}">${sy.errors.total}</div></div><div><div class="k">${esc(t('sys_schema'))}</div><div class="v num ${sy.schema === sy.schemaExpected ? '' : 'bad'}">v${sy.schema}</div></div></div>
+      <p class="note" style="margin-top:8px">${esc(t('sys_backup'))}: <b class="${sy.lastBackup && !stale ? '' : 'no'}">${sy.lastBackup ? esc(stamp(sy.lastBackup)) : esc(t('sys_never'))}</b> · ${esc(t('sys_req', { n: sy.requests, e: sy.errors5xx }))}${sy.slowest.length ? ' · ' + esc(t('sys_slow')) + ': ' + sy.slowest.map(x => esc(x[0]) + ' ' + x[1] + ' ms').join(', ') : ''}</p>
+      ${sy.recentErrors.length ? `<div class="hist" style="margin-top:8px">${sy.recentErrors.map(e => `<div class="hrow"><span><small style="display:block">${esc(stamp(e.ts))} · ${esc(e.kind)} · ${esc(e.route || '')}</small>${esc(e.message || '')}</span></div>`).join('')}</div>` : `<p class="note">${esc(t('sys_none'))}</p>`}
+      <a class="btn alt block" style="margin-top:10px" href="api/admin/backup" download>${ic('download')}${esc(t('sys_dl'))}</a></section>`;
+  }
+  /** The app reports its own crashes (message, file name and line only: nothing about the rider), at most 5 per page load. */
+  function installErrorReporter() {
+    let sent = 0; const seen = new Set();
+    const report = (msg, src, line) => {
+      msg = String(msg || '').slice(0, 160);
+      if (!msg || /^script error\.?$/i.test(msg) || /ResizeObserver/i.test(msg) || sent >= 5 || seen.has(msg)) return;
+      seen.add(msg); sent++;
+      try { fetch('api/client-error', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-TW': '1' }, body: JSON.stringify({ msg, src: String(src || '').slice(-120), line: line | 0, v: APP_VERSION }), keepalive: true }).catch(() => { /* best effort */ }); } catch (e) { /* best effort */ }
+    };
+    window.addEventListener('error', e => report(e.message, e.filename, e.lineno));
+    window.addEventListener('unhandledrejection', e => report('Unhandled: ' + ((e.reason && e.reason.message) || e.reason), '', 0));
+  }
   /* ---------- admin overview (only for riders listed in TRUEWAGE_ADMIN_PHONES) ---------- */
   async function adminSheet(b) {
     b.innerHTML = `<div class="reading"><div class="spin"></div><span>${t('reading')}</span></div>`;
@@ -1279,20 +1518,21 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     b.innerHTML = `<div class="stats"><div><div class="k">${t('adm_riders')}</div><div class="v num">${T0.riders}</div></div><div><div class="k">${t('hist_days')}</div><div class="v num">${T0.days}</div></div><div><div class="k">${t('orders_n')}</div><div class="v num">${T0.orders}</div></div><div><div class="k">${t('adm_ai')}</div><div class="v num">${T0.aiImagesToday}</div></div></div>
       <p class="note" style="margin-top:8px">${esc(t('adm_note', { i: T0.imports, s: T0.statements, c: T0.contributions, a: T0.aiCached }))}</p>
       ${accuracyAdminHTML(j)}
+      ${systemAdminHTML(j.system)}
       <section class="card" style="margin-top:12px"><h3 class="h3">${t('adm_list')}</h3><div class="hist">${j.riders.map(r => `<div class="hrow"><span>${esc(r.name)}<small style="display:block">${esc(r.phone)} · ${esc(ago(r.created))}</small></span><small>${r.days} ${t('hist_days').toLowerCase()} · ${r.orders} ${t('orders_n')} · ${r.imports} ${t('hist_imports').toLowerCase()}<br>${esc(t('adm_last'))}: ${esc(ago(r.last_active))}</small></div>`).join('') || `<p class="muted">${t('hist_empty')}</p>`}</div></section>`;
   }
 
   function dataSheet(b) {
     const n = S.sessions.reduce((a, s) => a + s.orders.length, 0);
     b.innerHTML = `<p class="muted">${S.sessions.length ? t('imp_records', { s: S.sessions.length, n }) : t('imp_none')}</p>
-      <div class="menu"><button class="btn alt block" id="d-costs">${t('costs_h')}</button><button class="btn alt block" id="d-expn">${t('exp_h')}</button><button class="btn alt block" id="d-hist">${t('hist_h')}</button>
+      <div class="menu"><button class="btn alt block" id="d-costs">${t('costs_h')}</button><button class="btn alt block" id="d-expn">${t('exp_h')}</button><button class="btn alt block" id="d-hist">${t('hist_h')}</button><button class="btn alt block" id="d-log">${t('log_h')}</button><button class="btn alt block" id="d-set" ${S.sessions.length ? '' : 'disabled'}>${t('set_open')}</button>
         <button class="btn alt block" id="d-exp" ${S.sessions.length ? '' : 'disabled'}>${ic('download')}${t('data_export')}</button>
         <button class="btn alt block" id="d-imp">${ic('upload')}${t('data_import')}</button>
         <button class="btn alt block" id="d-del" ${S.sessions.length ? '' : 'disabled'}>${t('data_delete')}</button>
         <button class="btn alt block" id="d-big" aria-pressed="${!!S.big}">${t('big_text')}: ${S.big ? 'ON' : 'OFF'}</button></div>
       <h3 class="h3" style="margin-top:18px">${t('install_h')}</h3><p class="note">${t('install_p')}</p>
       <p class="note" style="margin-top:16px">${t('pdf_disclaimer')}</p>`;
-    $('#d-costs', b).onclick = () => openSheet('costs'); $('#d-expn', b).onclick = () => openSheet('expenses'); $('#d-hist', b).onclick = () => openSheet('history'); $('#d-exp', b).onclick = exportData; $('#d-imp', b).onclick = () => $('#backup-file').click(); $('#d-del', b).onclick = deleteAll;
+    $('#d-costs', b).onclick = () => openSheet('costs'); $('#d-expn', b).onclick = () => openSheet('expenses'); $('#d-hist', b).onclick = () => openSheet('history'); $('#d-log', b).onclick = () => openSheet('log'); $('#d-set', b).onclick = () => { S.insSeg = 'settle'; closeSheet(); setTab('insights'); }; $('#d-exp', b).onclick = exportData; $('#d-imp', b).onclick = () => $('#backup-file').click(); $('#d-del', b).onclick = deleteAll;
     $('#d-big', b).onclick = () => { S.big = !S.big; save(); applyStatic(); renderSheet(); };
   }
   function importSheet(b) {
@@ -1404,7 +1644,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     const clean = inc.map((s, i) => ({ id: 'u' + stamp + '-' + i, date: s.date, platform: s.platform, zone: s.zone, onlineMin: s.onlineMin || 0, bonus: s.bonus || 0, source: P.reader || 'manual', orders: s.orders.map(o => ({ hour: o.hour, zone: o.zone, km: o.km, pay: o.pay, incentive: o.incentive, deduction: o.deduction, durMin: o.durMin || Math.round(10 + o.km * 3.4) })) }));
     S.sessions = S.sessions.filter(s => s.source !== 'demo').concat(clean);
     S.hashes = (S.demo ? [] : S.hashes).concat(P.hashes || []);
-    S.lastBatch = clean.map(s => s.id); S.reader = P.reader; S.demo = false; S.day = null; S.oc = null; resetWi();
+    S.lastBatch = clean.map(s => s.id); S.lastHashes = (P.hashes || []).slice(); S.reader = P.reader; S.demo = false; S.day = null; S.oc = null; resetWi();
     if (S.user && !P.sample && (P.reader === 'ai' || P.reader === 'ocr')) { const rs = reviewStats(P); if (rs.ordersRead > 0) api('POST', 'api/me/review', Object.assign({ reader: P.reader }, rs)).catch(() => { /* statistics are optional */ }); }
     S.pending = null; ui.thumbs = null; ui.msg = null; ui.open = new Set(); recompute();
     const n = clean.reduce((a, s) => a + s.orders.length, 0);
@@ -1412,7 +1652,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
   }
 
   function exportData() {
-    const blob = new Blob([JSON.stringify({ app: 'truewage', version: 3, exported: new Date().toISOString(), profile: S.profile, sessions: S.sessions, shifts: S.shifts, hashes: S.hashes }, null, 1)], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify({ app: 'truewage', version: 3, exported: new Date().toISOString(), profile: S.profile, sessions: S.sessions, shifts: S.shifts, hashes: S.hashes, expenses: S.expenses, payouts: S.payouts }, null, 1)], { type: 'application/json' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'truewage-backup.json'; a.click();
   }
   function validBackup(j) {
@@ -1425,13 +1665,15 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
       const j = JSON.parse(await file.text());
       if (!validBackup(j)) throw new Error('invalid');
       S.shifts = Array.isArray(j.shifts) ? j.shifts.filter(x => x && /^\d{4}-\d{2}-\d{2}$/.test(x.date) && isFinite(x.onlineMin) && isFinite(x.km) && x.onlineMin >= 0 && x.km >= 0).slice(0, 400) : [];
+      S.expenses = Array.isArray(j.expenses) ? j.expenses.filter(x => x && /^\d{4}-\d{2}-\d{2}$/.test(x.date) && x.amount > 0).slice(0, 3000) : S.expenses;
+      S.payouts = Array.isArray(j.payouts) ? j.payouts.filter(x => x && /^\d{4}-\d{2}-\d{2}$/.test(x.from) && /^\d{4}-\d{2}-\d{2}$/.test(x.to) && x.amount > 0).slice(0, 600) : S.payouts;
       S.sessions = j.sessions; S.hashes = Array.isArray(j.hashes) ? j.hashes.filter(h => /^[0-9a-f]{64}$/.test(h)) : []; if (j.profile && typeof j.profile === 'object') S.profile = Object.assign(T.defaultProfile(), j.profile);
       S.demo = j.sessions.every(s => s.source === 'demo'); S.pending = null; S.day = null; recompute(); if (S.sheet) renderSheet(); rerender(); toast(t('imp_records', { s: S.sessions.length, n: S.sessions.reduce((a, s) => a + s.orders.length, 0) }));
     } catch (e) { toast(t('data_bad')); }
   }
   function deleteAll() {
     if (!confirm(t('data_confirm'))) return;
-    const lang = S.lang; S.sessions = []; S.hashes = []; S.report = null; S.demo = false; S.pending = null; S.lastBatch = []; S.shared = false; S.day = null; S.oc = null; resetWi(); S.profile = T.defaultProfile('petrol'); S.rider = { name: '', phone4: '' }; S.lang = lang; stopWatch(); S.shift = null; S.shifts = [];
+    const lang = S.lang; S.sessions = []; S.hashes = []; S.report = null; S.demo = false; S.pending = null; S.lastBatch = []; S.shared = false; S.day = null; S.oc = null; resetWi(); S.profile = T.defaultProfile('petrol'); S.rider = { name: '', phone4: '' }; S.lang = lang; stopWatch(); S.shift = null; S.shifts = []; S.gone = []; S.payouts = []; S.expenses = []; S.lastHashes = [];
     try { localStorage.removeItem(KEY); localStorage.removeItem('truewage.rid'); } catch (e) { /* ignore */ }
     save(); ui.thumbs = null; ui.msg = null; closeSheet(); setTab('home'); toast(t('data_deleted'));
   }
@@ -1501,6 +1743,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
 
   /* ---------- init ---------- */
   function init() {
+    installErrorReporter();
     load(); I18N.setLang(S.lang);
     const sel = $('#lang'); sel.innerHTML = Object.keys(I18N.L).map(k => `<option value="${k}" ${k === S.lang ? 'selected' : ''}>${I18N.L[k]._name}</option>`).join('');
     sel.onchange = () => changeLang(sel.value);

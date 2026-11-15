@@ -5,7 +5,7 @@ RUN useradd --system --uid 10001 --home-dir /app truewage && mkdir -p /data /app
 WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
-COPY --chown=truewage index.html server.py accounts.py store.py manifest.json sw.js icon.svg ./
+COPY --chown=truewage index.html server.py accounts.py store.py monitor.py backup.py manifest.json sw.js icon.svg ./
 COPY --chown=truewage css ./css
 COPY --chown=truewage js ./js
 USER truewage

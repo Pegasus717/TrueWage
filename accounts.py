@@ -24,10 +24,13 @@ from collections import defaultdict, deque
 
 SESSION_DAYS = 30
 MAX_DATA_BYTES = 3 * 1024 * 1024
-LANGS = {"en", "hi", "te", "ta"}
+LANGS = {"en", "hi", "te", "ta", "kn", "mr", "bn"}
 CITIES = {"Hyderabad", "Bengaluru"}
-VEHICLES = {"petrol", "ev", "cng", "car"}
-PROFILE_KEYS = {"mileage", "fuelPrice", "maintPerKm", "deadKm", "dataPerHour", "fixedPerDay", "minWage", "fuelPerKmOverride", "serviceEvery"}
+VEHICLES = {"petrol", "ev", "cng", "car", "cycle"}
+OWNERSHIP = {"owned", "rented"}
+TRAFFIC = {"light", "normal", "heavy"}
+PROFILE_KEYS = {"mileage", "fuelPrice", "maintPerKm", "deadKm", "dataPerHour", "fixedPerDay", "minWage", "fuelPerKmOverride", "serviceEvery",
+                "emiPerMonth", "insurancePerYear", "rentPerDay", "detailWear", "tyrePrice", "tyreLife", "oilPrice", "oilEvery", "batteryPrice", "batteryLife"}
 FLAGS = {"shared", "vehicleOk", "tourDone", "big", "demo"}
 EXPENSE_CATS = {"fuel", "parking_toll", "fine", "repair", "service", "other"}
 AI_USER_DAILY = int(os.environ.get("TRUEWAGE_AI_USER_DAILY", "60"))      # images one rider may have read by AI per day
@@ -322,7 +325,8 @@ def clean_userdata(d):
                        "incentive": _num(o.get("incentive"), 0, 20000), "deduction": _num(o.get("deduction"), 0, 20000), "durMin": _num(o.get("durMin"), 0, 600)}
                       for o in s["orders"] if isinstance(o, dict)]
             sess.append({"id": _str(s.get("id"), 60), "date": s["date"], "platform": _str(s.get("platform"), 30, "Unknown"), "zone": _str(s.get("zone"), 40) or None,
-                         "onlineMin": _num(s.get("onlineMin"), 0, 1440), "bonus": _num(s.get("bonus"), 0, 20000), "source": _str(s.get("source"), 20), "orders": orders})
+                         "onlineMin": _num(s.get("onlineMin"), 0, 1440), "bonus": _num(s.get("bonus"), 0, 20000), "source": _str(s.get("source"), 20), "orders": orders,
+                         "rev": _num(s.get("rev"), 0, 4e12), "edited": bool(s.get("edited"))})
         out["sessions"] = sess
     if "shifts" in d:
         if not isinstance(d["shifts"], list) or len(d["shifts"]) > 400:
@@ -352,7 +356,19 @@ def clean_userdata(d):
             raise AuthError("bad_data")
         pr = {k: _num(d["profile"].get(k), 0, 1e6) for k in PROFILE_KEYS if k in d["profile"]}
         pr["vehicle"] = d["profile"].get("vehicle") if d["profile"].get("vehicle") in VEHICLES else "petrol"
+        pr["ownership"] = d["profile"].get("ownership") if d["profile"].get("ownership") in OWNERSHIP else "owned"
+        pr["traffic"] = d["profile"].get("traffic") if d["profile"].get("traffic") in TRAFFIC else "normal"
         out["profile"] = pr
+    if "gone" in d:                                       # ids of records the rider deleted, so another device cannot bring them back
+        if not isinstance(d["gone"], list) or len(d["gone"]) > 3000:
+            raise AuthError("bad_data")
+        out["gone"] = [{"id": _str(x.get("id"), 60), "ts": _num(x.get("ts"), 0, 4e12)} for x in d["gone"] if isinstance(x, dict) and x.get("id")]
+    if "payouts" in d:                                    # what a platform paid for a period, typed in by the rider, to check against their own order records
+        if not isinstance(d["payouts"], list) or len(d["payouts"]) > 600:
+            raise AuthError("bad_data")
+        ok = lambda v: re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(v or "")) is not None          # noqa: E731
+        out["payouts"] = [{"id": _str(x.get("id"), 40), "platform": _str(x.get("platform"), 30, "All"), "from": x["from"], "to": x["to"], "amount": _num(x.get("amount"), 0, 10000000), "note": _str(x.get("note"), 80)}
+                          for x in d["payouts"] if isinstance(x, dict) and ok(x.get("from")) and ok(x.get("to")) and x["from"] <= x["to"]]
     if "hashes" in d:
         if not isinstance(d["hashes"], list) or len(d["hashes"]) > 5000:
             raise AuthError("bad_data")
@@ -434,6 +450,10 @@ def _change_note(old, new):
     if "sessions" in new:
         added = ids(new, "sessions") - ids(old, "sessions")
         gone = ids(old, "sessions") - ids(new, "sessions")
+        before = {x.get("id"): x for x in (old.get("sessions") or [])}
+        changed = [x for x in new["sessions"] if x["id"] in before and (before[x["id"]].get("orders") != x["orders"] or before[x["id"]].get("date") != x["date"] or before[x["id"]].get("platform") != x["platform"])]
+        if changed:
+            parts.append("%d day%s edited" % (len(changed), "" if len(changed) == 1 else "s"))
         n_orders = sum(len(x["orders"]) for x in new["sessions"] if x["id"] in added)
         if added:
             parts.append("+%d day%s, +%d orders" % (len(added), "" if len(added) == 1 else "s", n_orders))

@@ -19,7 +19,7 @@ Configuration (environment variables, or a .env file next to this script that is
 Screenshots are forwarded to the model API and are never written to disk. The API key is read once at start-up and never
 sent to the browser or written to logs.
 """
-import base64, binascii, hashlib, json, os, re, sys, threading, time, urllib.error, urllib.request
+import base64, binascii, hashlib, hmac, json, os, re, sys, threading, time, urllib.error, urllib.request
 from collections import OrderedDict
 from http.cookies import SimpleCookie
 from urllib.parse import urlparse
@@ -53,6 +53,7 @@ DAILY_IMAGES = int(os.environ.get("TRUEWAGE_AI_DAILY_IMAGES", "400"))           
 API_URL = os.environ.get("ANTHROPIC_API_URL", "https://api.anthropic.com/v1/messages")  # overridable for tests
 DATA_DIR = os.environ.get("TRUEWAGE_DATA", os.path.join(ROOT, "data"))
 TRUST_PROXY = os.environ.get("TRUEWAGE_TRUST_PROXY") == "1"
+METRICS_TOKEN = os.environ.get("TRUEWAGE_METRICS_TOKEN", "").strip()          # lets an uptime or metrics service read /api/metrics without a rider login
 K_ANON = 20
 MAX_IMAGES = 12
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
@@ -86,7 +87,7 @@ RULES:
 
 _lock = threading.Lock()
 _hits = defaultdict(deque)
-LIMITS = {"extract": (20, 3600), "statement": (60, 3600), "contribute": (30, 3600), "ask": (60, 3600), "register": (60, 3600), "data": (400, 3600), "recover": (30, 3600), "review": (200, 3600)}
+LIMITS = {"extract": (20, 3600), "statement": (60, 3600), "contribute": (30, 3600), "ask": (60, 3600), "register": (60, 3600), "data": (400, 3600), "recover": (30, 3600), "review": (200, 3600), "client_error": (20, 3600), "backup": (6, 3600)}
 
 
 def rate_ok(bucket, ip):
@@ -106,6 +107,8 @@ def rate_ok(bucket, ip):
 
 
 import accounts  # noqa: E402  (per-rider login and private data)
+import monitor  # noqa: E402  (request metrics, error log, readiness)
+import backup  # noqa: E402  (database dumps and restore)
 
 accounts.init(DATA_DIR)          # opens the database: hosted Postgres when DATABASE_URL is set, otherwise a local SQLite file
 import store  # noqa: E402
@@ -411,7 +414,8 @@ def call_claude(images, uid=None):
 
 
 # ---------------- ask: grounded Q&A ----------------
-LANGS = {"en": "English", "hi": "Hindi (Devanagari script)", "te": "Telugu (Telugu script)", "ta": "Tamil (Tamil script)"}
+LANGS = {"en": "English", "hi": "Hindi (Devanagari script)", "te": "Telugu (Telugu script)", "ta": "Tamil (Tamil script)",
+         "kn": "Kannada (Kannada script)", "mr": "Marathi (Devanagari script)", "bn": "Bengali (Bengali script)"}
 ASK_SYSTEM = """You are TrueWage's assistant for gig workers in India (delivery riders and cab drivers).
 You are given the rider's OWN calculated numbers as JSON, then a question.
 Rules:
@@ -537,9 +541,11 @@ class Handler(BaseHTTPRequestHandler):
         if self._secure():
             self.send_header("Strict-Transport-Security", "max-age=15552000")      # tell browsers to use HTTPS only (sent only when served over HTTPS)
         self.send_header("Permissions-Policy", "camera=(), microphone=(self), geolocation=(self)")
+        self.send_header("X-Request-Id", getattr(self, "_rid", "-"))
         super().end_headers()
 
     def _send(self, code, data, ctype, cache="no-store", headers=None):
+        self._status = code
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
@@ -651,10 +657,38 @@ class Handler(BaseHTTPRequestHandler):
             raise ValueError("Content-Type must be application/json")
         return json.loads(self.rfile.read(n))
 
-    def do_GET(self):
+    def _do_GET(self):
         path = self.path.split("?", 1)[0]
-        if path == "/api/health":
-            return self._json(200, {"ok": True, "ai": bool(API_KEY), "model": MODEL if API_KEY else None, "db": "postgres" if store.backend() == "pg" else "sqlite"})
+        if path == "/api/health":              # liveness: the process is up. Render restarts the service if this stops answering.
+            return self._json(200, {"ok": True, "ai": bool(API_KEY), "model": MODEL if API_KEY else None, "db": "postgres" if store.backend() == "pg" else "sqlite", "version": monitor.VERSION, "uptimeS": int(time.time() - monitor.STARTED)})
+        if path == "/api/health/ready":        # readiness: the database answers too. For uptime monitors, which should alert when this is not 200.
+            ok, ms = monitor.ready()
+            return self._json(200 if ok else 503, {"ok": ok, "dbOk": ok, "dbMs": ms, "version": monitor.VERSION})
+        if path == "/api/metrics":
+            tok_ok = bool(METRICS_TOKEN) and hmac.compare_digest(self.headers.get("Authorization", "").encode(), ("Bearer " + METRICS_TOKEN).encode())
+            if not tok_ok:
+                user = self._user()
+                if not user:
+                    return self._json(401, {"error": "not_signed_in"})
+                if not accounts.is_admin(user):
+                    return self._json(403, {"error": "forbidden"})
+            ok, ms = monitor.ready()
+            lb = backup.last_backup()
+            extra = {"db_up": 1 if ok else 0, "db_ms": ms, "errors_24h": monitor.errors_since()["total"], "schema_version": store.schema_version()}
+            if lb:
+                extra["last_backup_age_seconds"] = int(time.time() - lb)
+            return self._send(200, monitor.prometheus(extra).encode(), "text/plain; version=0.0.4; charset=utf-8")
+        if path == "/api/admin/backup":
+            user = self._user()
+            if not user:
+                return self._json(401, {"error": "not_signed_in"})
+            if not accounts.is_admin(user):
+                return self._json(403, {"error": "forbidden"})
+            if not rate_ok("backup", "u%d" % user["id"]):
+                return self._json(429, {"error": "too_many_requests"})
+            d = backup.dump()
+            accounts.log_event(user["id"], "backup", "download")
+            return self._send(200, backup.encode(d), "application/gzip", headers={"Content-Disposition": 'attachment; filename="truewage-backup-%s.json.gz"' % backup.stamp()})
         if path == "/api/me":
             user = self._user()
             if not user:
@@ -667,7 +701,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(401, {"error": "not_signed_in"})
             if not accounts.is_admin(user):
                 return self._json(403, {"error": "forbidden"})
-            return self._json(200, accounts.admin_overview())
+            ov = accounts.admin_overview()
+            ok, ms = monitor.ready(); lb = backup.last_backup(); snap = monitor.snapshot()
+            ov["system"] = {"version": monitor.VERSION, "uptimeS": snap["uptimeS"], "dbOk": ok, "dbMs": ms, "schema": store.schema_version(), "schemaExpected": store.SCHEMA_VERSION,
+                            "lastBackup": lb, "errors": monitor.errors_since(), "recentErrors": monitor.recent_errors(8), "requests": snap["requests"], "errors5xx": snap["errors5xx"],
+                            "slowest": sorted(([g, e["p95"]] for g, e in snap["routes"].items() if e["p95"] is not None), key=lambda x: -x[1])[:3], "ai": snap["ai"], "backend": store.backend()}
+            return self._json(200, ov)
         if path == "/api/me/history":
             user = self._user()
             if not user:
@@ -698,10 +737,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(404, {"error": "not found"})
         self._send(200, data, MIME.get(os.path.splitext(rel)[1], "application/octet-stream"), cache="no-cache")
 
-    def do_HEAD(self):
-        self.do_GET()
-
-    def do_POST(self):
+    def _do_POST(self):
         path, ip = self.path.split("?", 1)[0], self.client_ip()
         if path.startswith("/api/") and not self._csrf_ok():
             return self._json(403, {"error": "csrf"})
@@ -716,6 +752,7 @@ class Handler(BaseHTTPRequestHandler):
                 body = self._body(MAX_BODY)
                 user = self._user()
                 res = call_claude(body.get("images"), user["id"] if user else None)
+                monitor.ai_event("extract_ok")
                 if user:
                     m = res["meta"]
                     accounts.log_import(user["id"], "ai", m["images"], m["cached"], m["sent"], len(res["sessions"]), sum(len(x["orders"]) for x in res["sessions"]), m["models"])
@@ -744,6 +781,13 @@ class Handler(BaseHTTPRequestHandler):
                     per = (data or {}).get("period") if isinstance((data or {}).get("period"), dict) else {}
                     accounts.log_statement(user["id"], sid, per.get("from"), per.get("to"), ((data or {}).get("monthly") or {}).get("net"))
                 return self._json(200, {"ok": True})
+            if path == "/api/client-error":                      # the app reporting its own crash: a short scrubbed message, nothing about the rider
+                if not rate_ok("client_error", ip):
+                    return self._json(429, {"error": "too many requests"})
+                msg = monitor.clean_client_error(self._body(2048))
+                if msg:
+                    monitor.log_error("client", "browser", msg, self._rid)
+                return self._json(200, {"ok": True})
             if path == "/api/contribute":
                 if not rate_ok("contribute", ip):
                     return self._json(429, {"error": "too many requests"})
@@ -763,18 +807,22 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json(507, {"error": "full"})
                 return self._json(200, {"ok": True, "stored": True})
         except AIBusy as e:
+            monitor.ai_event("busy")
             return self._json(503, {"error": "ai_busy"}, headers={"Retry-After": str(e.retry)})
         except AIBudget:
+            monitor.ai_event("budget_exhausted")
             return self._json(503, {"error": "ai_budget"})
         except accounts.AuthError as e:
             return self._json(e.status, {"error": e.code}, headers={"Retry-After": str(e.retry)} if e.retry else None)
         except (ValueError, KeyError, TypeError) as e:
             return self._json(400, {"error": str(e)})
         except urllib.error.HTTPError as e:
-            print("model API error:", e.code, file=sys.stderr)
+            monitor.ai_event("upstream_rejected")
+            monitor.log_error("server", path, "model API HTTP %s" % e.code, self._rid)
             return self._json(502, {"error": "the vision service rejected the request"})
         except Exception as e:  # keep serving; the client falls back to on-device OCR
-            print("server error:", type(e).__name__, file=sys.stderr)
+            monitor.ai_event("upstream_failed")
+            monitor.log_error("server", path, e, self._rid)
             return self._json(502, {"error": "upstream failure"})
         return self._json(404, {"error": "not found"})
 
@@ -790,11 +838,37 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, KeyError, TypeError) as e:
             self._json(400, {"error": str(e)})
 
+    def _timed(self, method, fn):
+        """Run one request handler, then record its status and duration, and log any exception that escaped it."""
+        self._rid, self._status, t0, path = monitor.request_id(), 0, time.time(), self.path.split("?", 1)[0]
+        try:
+            fn()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        except Exception as e:                                           # a bug in a handler: answer 500 instead of dropping the connection
+            monitor.log_error("server", path, e, self._rid)
+            if not self._status:
+                try:
+                    self._json(500, {"error": "server_error", "id": self._rid})
+                except Exception:
+                    pass
+        finally:
+            monitor.record(method, path, self._status or 500, (time.time() - t0) * 1000, self._rid)
+
+    def do_GET(self):
+        self._timed("GET", self._do_GET)
+
+    def do_HEAD(self):
+        self._timed("HEAD", self._do_GET)
+
+    def do_POST(self):
+        self._timed("POST", self._do_POST)
+
     def do_PUT(self):
-        self._write("PUT")
+        self._timed("PUT", lambda: self._write("PUT"))
 
     def do_DELETE(self):
-        self._write("DELETE")
+        self._timed("DELETE", lambda: self._write("DELETE"))
 
     def log_message(self, fmt, *args):
         pass
@@ -802,5 +876,7 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     port, host = int(os.environ.get("PORT", 8080)), os.environ.get("HOST", "0.0.0.0")
-    print("TrueWage on http://%s:%d  (Claude vision: %s, data: %s)" % (host, port, "ON" if API_KEY else "off, on-device OCR fallback", DATA_DIR))
+    print("TrueWage v%s on http://%s:%d  (Claude vision: %s, data: %s, schema v%s)" % (monitor.VERSION, host, port, "ON" if API_KEY else "off, on-device OCR fallback", DATA_DIR, store.schema_version()))
+    monitor.LOG_REQUESTS = os.environ.get("TRUEWAGE_LOG", "1") != "0"
+    backup.start_scheduler(DATA_DIR)
     ThreadingHTTPServer((host, port), Handler).serve_forever()

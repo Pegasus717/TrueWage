@@ -42,6 +42,8 @@ TABLES = [
     ("extract_cache", "CREATE TABLE IF NOT EXISTS extract_cache(key TEXT PRIMARY KEY, screens TEXT NOT NULL, ts %BIG% NOT NULL)"),
     ("ai_budget", "CREATE TABLE IF NOT EXISTS ai_budget(day TEXT PRIMARY KEY, images %BIG% NOT NULL DEFAULT 0)"),
     ("kv", "CREATE TABLE IF NOT EXISTS kv(k TEXT PRIMARY KEY, v TEXT NOT NULL)"),
+    ("schema_migrations", "CREATE TABLE IF NOT EXISTS schema_migrations(version %BIG% PRIMARY KEY, name TEXT NOT NULL, applied %BIG% NOT NULL)"),
+    ("error_log", "CREATE TABLE IF NOT EXISTS error_log(id %ID%, ts %BIG% NOT NULL, kind TEXT NOT NULL, route TEXT, message TEXT, request_id TEXT)"),
     # per-rider analytics (computed by the app's calculation engine, stored so a rider's analytics follow them and can be queried)
     ("analytics_summary", "CREATE TABLE IF NOT EXISTS analytics_summary(user_id %BIG% PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, updated %BIG% NOT NULL, from_date TEXT, to_date TEXT, days %BIG%, orders %BIG%, hours %REAL%, app_shown %REAL%, gross %REAL%, cost %REAL%, net %REAL%, per_hr %REAL%, app_per_hr %REAL%, lo_per_hr %REAL%, hi_per_hr %REAL%)"),
     ("analytics_days", "CREATE TABLE IF NOT EXISTS analytics_days(user_id %BIG% NOT NULL REFERENCES users(id) ON DELETE CASCADE, date TEXT NOT NULL, orders %BIG%, hours %REAL%, app_shown %REAL%, gross %REAL%, cost %REAL%, net %REAL%, per_hr %REAL%, PRIMARY KEY(user_id, date))"),
@@ -56,7 +58,70 @@ INDEXES = [
     "CREATE INDEX IF NOT EXISTS imp_user ON imports(user_id, id)",
     "CREATE INDEX IF NOT EXISTS cache_ts ON extract_cache(ts)",
     "CREATE INDEX IF NOT EXISTS rs_reader ON review_stats(reader)",
+    "CREATE INDEX IF NOT EXISTS err_ts ON error_log(ts)",
 ]
+
+
+# ---------------- versioned migrations ----------------
+# TABLES and INDEXES above are idempotent ("CREATE ... IF NOT EXISTS"), so a brand-new database needs nothing else. Anything that changes a table
+# that may already exist (a new column, a backfill) is a numbered migration below. Each runs once, in order, inside one transaction, and is
+# recorded in schema_migrations. Never edit a migration that has shipped: add a new one.
+def _m_baseline(c):
+    """Version 1 is the schema as created by TABLES. Nothing to do: recording it marks where numbered migrations begin."""
+
+
+def _m_recovery_code(c):
+    _add_column(c, "users", "recovery", "TEXT")            # hash of the rider's recovery code (databases made before v2 get the column here)
+
+
+MIGRATIONS = [(1, "baseline schema", _m_baseline), (2, "users.recovery column", _m_recovery_code)]
+SCHEMA_VERSION = MIGRATIONS[-1][0]
+
+
+def applied_migrations(c):
+    return {r["version"] for r in c.execute("SELECT version FROM schema_migrations").fetchall()}
+
+
+def schema_version():
+    """Highest migration recorded in the database (0 when none)."""
+    with conn() as c:
+        r = c.execute("SELECT MAX(version) AS v FROM schema_migrations").fetchone()
+    return int(r["v"] or 0)
+
+
+def pending(c, migrations=None):
+    done = applied_migrations(c)
+    return [m for m in (MIGRATIONS if migrations is None else migrations) if m[0] not in done]
+
+
+def migrate(c, migrations=None):
+    """Apply every migration not yet recorded. Returns the list of versions applied. Two servers starting together are serialised on Postgres by an
+    advisory lock; a migration that fails rolls the whole start-up transaction back, so the schema is never left half-changed."""
+    if _kind == "pg":
+        c.execute("SELECT pg_advisory_xact_lock(7272001)")
+    elif not c.raw.in_transaction:
+        c.raw.execute("BEGIN IMMEDIATE")                  # SQLite runs DDL outside a transaction unless asked: this makes a failed migration roll back completely
+    applied = []
+    for version, name, fn in sorted(pending(c, migrations), key=lambda m: m[0]):
+        fn(c)
+        c.execute("INSERT INTO schema_migrations(version,name,applied) VALUES(?,?,?) ON CONFLICT(version) DO NOTHING", (version, name, int(time.time())))
+        applied.append(version)
+    return applied
+
+
+def _snapshot_before_migrating(data_dir, versions):
+    """SQLite only: copy the database file (online backup API) before changing an existing database's schema, so a bad migration can be undone."""
+    if _kind != "sqlite" or not _path or not os.path.exists(_path):
+        return None
+    d = os.path.join(data_dir, "backups")
+    os.makedirs(d, exist_ok=True)
+    dest = os.path.join(d, "pre-migrate-v%d-%d.db" % (max(versions), int(time.time())))
+    src, dst = sqlite3.connect(_path), sqlite3.connect(dest)
+    try:
+        src.backup(dst)
+    finally:
+        dst.close(); src.close()
+    return dest
 
 
 def backend():
@@ -105,9 +170,14 @@ def init(data_dir):
                         moved = True
                 if moved:
                     c.execute("DO $$ BEGIN DROP SCHEMA %s; EXCEPTION WHEN others THEN NULL; END $$" % OLD_SCHEMA)
+        had_data = _kind == "sqlite" and c.execute("SELECT 1 FROM sqlite_master WHERE name='users'").fetchone() is not None   # a database that already held riders
         for _, sql in TABLES:
             c.execute(_ddl(sql))
-        _add_column(c, "users", "recovery", "TEXT")           # v2: hash of the rider's recovery code (older databases get the column here)
+        todo = pending(c)
+        if had_data and any(v > 1 for v, _, _ in todo):
+            c.raw.commit()                         # release our write lock so the file can be copied
+            _snapshot_before_migrating(data_dir, [v for v, _, _ in todo])
+        migrate(c)
         for sql in INDEXES:
             c.execute(sql)
         if _kind == "pg":

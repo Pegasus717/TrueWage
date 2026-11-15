@@ -1,0 +1,45 @@
+name: backup
+# Daily encrypted copy of the hosted database, kept as a private workflow artifact for 14 days.
+# Needs two repository secrets (Settings > Secrets and variables > Actions):
+#   DATABASE_URL        the Supabase SESSION POOLER connection string (GitHub runners cannot reach the direct IPv6-only address)
+#   BACKUP_PASSPHRASE   a long random passphrase. Keep a copy somewhere safe: without it the backups cannot be opened.
+# Without both secrets this workflow does nothing. The dump holds password hashes and phone numbers, so it is never uploaded unencrypted.
+on:
+  schedule:
+    - cron: "30 21 * * *"      # 03:00 India time
+  workflow_dispatch:
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+    steps:
+      - name: Stop quietly when the secrets are not set
+        id: gate
+        run: |
+          if [ -z "$DATABASE_URL" ] || [ -z "$BACKUP_PASSPHRASE" ]; then echo "secrets not set; skipping"; echo "run=no" >> "$GITHUB_OUTPUT"; else echo "run=yes" >> "$GITHUB_OUTPUT"; fi
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.run == 'yes'
+      - uses: actions/setup-python@v5
+        if: steps.gate.outputs.run == 'yes'
+        with: { python-version: "3.12" }
+      - name: Dump, verify and encrypt
+        if: steps.gate.outputs.run == 'yes'
+        run: |
+          pip install "psycopg[binary]"
+          python backup.py dump --out backup.json.gz
+          python backup.py verify backup.json.gz
+          python backup.py drill backup.json.gz
+          openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass env:BACKUP_PASSPHRASE -in backup.json.gz -out "truewage-$(date -u +%Y%m%d).json.gz.enc"
+          sha256sum truewage-*.enc > checksum.txt
+          rm backup.json.gz
+      - uses: actions/upload-artifact@v4
+        if: steps.gate.outputs.run == 'yes'
+        with:
+          name: truewage-backup
+          path: |
+            truewage-*.json.gz.enc
+            checksum.txt
+          retention-days: 14

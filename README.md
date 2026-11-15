@@ -47,14 +47,20 @@ The numbers shown belong to a simulated demo rider and are labelled that way in 
 | Screenshot reading | Claude vision reads order lists, trip details, daily totals and order offers in any layout. The rider reviews anything uncertain before saving. On-device OCR is the fallback. |
 | Shift tracking | Records online hours and distance by GPS, including unpaid kilometres, and names the area the rider worked in. |
 | Expense log | Fuel fill-ups with odometer readings measure the real petrol cost per km. Repairs, tolls and fines are counted once. |
+| Vehicle costs | Owned or rented vehicle, loan EMI, insurance, rent, traffic and load, and tyre, oil and battery wear part by part. A bicycle costs nothing per km. The cost sheet shows the resulting cost per km and per day as the rider types. |
 | Order checker | Tells the rider whether a new order is worth taking. An offer screenshot can be scanned instead of typed. |
 | Insights | Best days, times and areas, a plan for the day, a weekly summary and a what-if simulator. |
+| Weeks and months | Every Monday to Sunday week and calendar month with what the apps showed, what was cut, what the rider kept and the change from the period before. |
+| Payout check | The rider types in what an app paid for a period. TrueWage adds up the rider's own order records for the same app and dates and flags a gap. |
+| App comparison | Real pay per hour on each app with an 80% range from the rider's own days, and which app pays best at each time of day. |
+| Edit records | Fix a day the reader got wrong, split a day, merge two days, or remove the last import, with undo. Edits sync between devices and deletions stay deleted. |
 | Accounts | Phone and password login, a private dashboard per rider, history, CSV export and account deletion. A one-time recovery code resets a forgotten password, and one tap logs out every other device. |
 | Service reminder | Uses the odometer readings from fuel and service entries to show how many kilometres are left before the next service. |
-| Income statement | A printable statement with a SHA-256 hash and QR code, so a lender can check it was not altered. |
+| Income statement | A printable A4 statement for a lender: month-by-month income, typical and weakest month, how much EMI the income can carry, where the order records came from (AI, phone OCR, typed, edited), and a SHA-256 hash with QR code and public verification page. |
 | Reading accuracy | Counts how many values riders had to correct after each reading, so the accuracy of the AI reader and of on-device OCR is measured from real use. |
 | City data | Anonymous pay data by area and time, shown only when at least 20 riders have contributed. |
-| Languages | English, Hindi, Telugu and Tamil, with typed or spoken questions. |
+| Languages | English, Hindi, Telugu, Tamil, Kannada, Marathi and Bengali, with typed or spoken questions. |
+| Operations | Versioned database migrations, scheduled backups with a restore drill, health and readiness checks, request metrics, an error log (server and browser) and an admin System panel. |
 
 ---
 
@@ -146,7 +152,9 @@ js/
 server.py        HTTP API, static files, AI calls, rate limits
 accounts.py      Users, sessions, per-rider data, history, export, quotas
 store.py         Storage layer (Supabase PostgreSQL or SQLite)
-tests/           Engine, server and account tests
+backup.py        Database dump, verify, restore drill and scheduled backups
+monitor.py       Request metrics, error log and readiness check
+tests/           Engine, merge, server, account, backup and monitoring tests
 tools/           Smoke test, database check, accuracy evaluation
 deploy/          Render, Supabase, Docker and Vultr guides
 docs/            Screenshots and architecture notes
@@ -202,6 +210,10 @@ Settings are environment variables, or entries in a `.env` file that Git ignores
 | `TRUEWAGE_AI_USER_ASKS` | `100` | Questions one rider can ask per day. |
 | `TRUEWAGE_ADMIN_PHONES` | empty | Phone numbers allowed to open the Admin overview. |
 | `TRUEWAGE_TRUST_PROXY` | `0` | Set to `1` when running behind an HTTPS proxy. |
+| `TRUEWAGE_LOG` | `1` | One JSON log line per API request (route, status, milliseconds; no phone numbers, IPs or bodies). `0` turns it off. |
+| `TRUEWAGE_METRICS_TOKEN` | empty | Lets an uptime or metrics service read `/api/metrics` with `Authorization: Bearer <token>`. Admin riders can always read it. |
+| `TRUEWAGE_BACKUP_DIR` | empty | Folder for scheduled backups. SQLite defaults to `data/backups`; with PostgreSQL nothing is written to the web server unless this is set. |
+| `TRUEWAGE_BACKUP_EVERY_H`, `TRUEWAGE_BACKUP_KEEP` | `24`, `7` | Hours between scheduled backups and how many files to keep. |
 | `PORT` | `8080` | Port the server listens on. |
 
 ---
@@ -212,6 +224,7 @@ Settings are environment variables, or entries in a `.env` file that Git ignores
 gross             = pay + incentives + bonus share - platform deductions
 fuel              = (paid km + unpaid km) x petrol cost per km
 repairs and other = (paid km + unpaid km) x rate, or the real logged repairs
+                    (rate = one figure, or tyres + oil + battery + small parts; 0 on a rented vehicle)
 mobile data       = online hours x data cost per hour
 cash remaining    = gross - fuel - repairs - data - EMI
 real pay per hour = cash remaining / online hours   (waiting time included)
@@ -220,6 +233,9 @@ real pay per hour = cash remaining / online hours   (waiting time included)
 - Unpaid distance comes from GPS shifts once three are matched with screenshots. Until then it is an editable assumption.
 - Petrol cost per km comes from fill-ups with odometer readings once two intervals exist.
 - A long gap in the data counts as at most three days, so one old screenshot cannot create months of EMI.
+- Fixed costs per day = loan EMI / 30 + insurance / 365 when the vehicle is owned, or the daily rent when it is rented, plus any other fixed cost the rider enters.
+- Traffic and load raise the fuel estimate by up to 12% (and lower it by 8% in light traffic). A measured petrol cost from fill-ups is never scaled.
+- The range on the app comparison is the 10th to 90th percentile of 400 resamples of the rider's own working days.
 - Defaults such as mileage, fuel price and the Rs 90 per hour fair-wage line are editable assumptions, not sourced statistics.
 
 ---
@@ -228,7 +244,8 @@ real pay per hour = cash remaining / online hours   (waiting time included)
 
 ```bash
 node tests/engine.test.js                    # calculation engine, readers, place detection
-python -m unittest discover -s tests         # server and accounts (runs on local SQLite)
+node tests/merge.test.js                     # two-device merge rules (edits and deletions)
+python -m unittest discover -s tests         # server, accounts, migrations, backups, monitoring (runs on local SQLite)
 python tools/db_check.py                     # end-to-end check of the configured database
 python tools/smoke.py https://your-site      # checks a running deployment
 python tools/accuracy_eval.py                # measures the AI reader on your own screenshots
@@ -245,6 +262,7 @@ The server tests run against a local mock of the Claude API, so they never spend
 | Render (live site) | `render.yaml` and [deploy/RENDER.md](deploy/RENDER.md) |
 | Any server with Docker | `Dockerfile` and `docker-compose.yml` with automatic HTTPS, described in [deploy/VULTR.md](deploy/VULTR.md). These files have not yet been run on a Vultr server. |
 | Database | Supabase PostgreSQL, see [deploy/SUPABASE.md](deploy/SUPABASE.md) |
+| Backups and uptime | `.github/workflows/backup.yml` (daily encrypted dump) and `uptime.yml` (readiness check every 10 minutes), see [docs/architecture.md](docs/architecture.md#backups-migrations-and-monitoring) |
 
 ---
 
@@ -252,6 +270,8 @@ The server tests run against a local mock of the Claude API, so they never spend
 
 - Passwords and recovery codes are stored as scrypt hashes. A recovery code is 100 random bits, shown once, and replaced by a new one each time it is used.
 - Passwords are stored as scrypt hashes. Session tokens are stored only as hashes and sent in `HttpOnly`, `SameSite=Strict` cookies (`Secure` over HTTPS).
+- Backups contain password hashes and phone numbers. The scheduled workflow encrypts them before upload; the admin download and `python backup.py dump` produce plain gzip files that must be kept private.
+- Error logs hold only a short message with long digit runs and URLs removed, the route and a request id.
 - Login attempts are rate-limited, and requests that change data are protected against CSRF.
 - Every database table has Row Level Security enabled with no access for Supabase's public roles. Only the server connects to the database.
 - The API key and database URL stay on the server and are excluded from Git.
@@ -266,7 +286,10 @@ The server tests run against a local mock of the Claude API, so they never spend
 - The AI reader has been spot-checked on a small set of screenshots. Its accuracy is now measured from rider corrections (admin overview and `GET /api/accuracy`), but no figure is published until riders have checked at least 100 values. Every import ends with a review step.
 - City analytics in the demo are simulated.
 - GPS, voice input and sharing from the phone gallery were tested in a desktop browser, not on a real phone.
-- The income statement is reported by the rider and protected against tampering. It is not certified by a platform or a bank.
+- The income statement is reported by the rider and protected against tampering. It is not certified by a platform or a bank. A lender should treat it like a salary slip the rider wrote, backed by screenshot hashes.
+- A payout that differs from the rider's order records is a prompt to ask the app, not proof of an error: orders may simply not have been imported.
+- Scheduled backups, the restore into PostgreSQL and the GitHub workflows were written and tested against SQLite and a throw-away database. They have not yet run against the live Supabase database.
+- The Kannada, Marathi and Bengali screens are machine-assisted translations and have not been reviewed by a native speaker. The same applies to the newest Telugu and Tamil strings.
 
 ---
 

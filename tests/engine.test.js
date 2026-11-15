@@ -396,3 +396,94 @@ console.log('v7 OK  plan', plan.segments.map(g => g.start + '-' + g.end + ' ' + 
   assert.ok(Math.abs(svc.total.gross - svc.total.fuel - svc.total.maint - svc.total.data - svc.total.fixed - svc.total.net) < 1e-6, 'costs still balance to the paisa');
   console.log('v18 OK  service logged as a repair-type cost');
 }
+
+// ---- v19: cost model: owned / rented, detailed wear, traffic, cycle ----
+{
+  const base = Object.assign(TW.defaultProfile('petrol'), { fixedPerDay: 0 });
+  assert.strictEqual(TW.fixedDaily(base), 0);
+  const owned = Object.assign({}, base, { emiPerMonth: 3000, insurancePerYear: 3650 });
+  assert.ok(Math.abs(TW.fixedDaily(owned) - (100 + 10)) < 1e-9, 'owned: EMI/30 + insurance/365: ' + TW.fixedDaily(owned));
+  const rented = Object.assign({}, owned, { ownership: 'rented', rentPerDay: 350 });
+  assert.ok(Math.abs(TW.fixedDaily(rented) - 350) < 1e-9, 'rented: rent only, loan and insurance ignored');
+  assert.strictEqual(TW.maintKm(rented), 0, 'the owner pays repairs on a rented vehicle');
+  assert.ok(Math.abs(TW.fixedDaily(Object.assign({}, owned, { fixedPerDay: 20 })) - 130) < 1e-9, 'the old single box still counts');
+  const detail = Object.assign({}, base, { detailWear: 1, tyrePrice: 2400, tyreLife: 20000, oilPrice: 500, oilEvery: 2500 });
+  assert.ok(Math.abs(TW.maintKm(detail) - (0.12 + 0.2 + TW.VEHICLES.petrol.miscPerKm)) < 1e-9, 'detailed wear = tyres + oil + small parts');
+  assert.strictEqual(TW.maintKm(Object.assign({}, detail, { detailWear: 0 })), base.maintPerKm, 'switching detail off restores the single estimate');
+  const heavy = Object.assign({}, base, { traffic: 'heavy' }), light = Object.assign({}, base, { traffic: 'light' });
+  assert.ok(TW.fuelKm(heavy) > TW.fuelKm(base) && TW.fuelKm(base) > TW.fuelKm(light));
+  assert.strictEqual(TW.fuelKm(Object.assign({}, heavy, { fuelPerKmOverride: 3 })), 3, 'a measured fuel cost is never scaled');
+  assert.strictEqual(TW.fuelKm(TW.defaultProfile('cycle')), 0, 'a cycle burns nothing');
+  const rA = TW.analyze(sessions, Object.assign({}, demoProfile, { fixedPerDay: 0 })), rB = TW.analyze(sessions, Object.assign({}, demoProfile, { fixedPerDay: 0, ownership: 'rented', rentPerDay: 300 }));
+  assert.ok(rB.total.fixed > 0 && rB.total.maint < rA.total.maint, 'rented: rent charged, repairs not');
+  assert.ok(Math.abs(rB.total.gross - rB.total.fuel - rB.total.maint - rB.total.data - rB.total.fixed - rB.total.net) < 1e-6, 'balances');
+  const sn = TW.sensitivity(sessions, Object.assign({}, demoProfile, { detailWear: 1, tyrePrice: 2400, tyreLife: 20000 })); assert.ok(sn.lo <= sn.base.perHr && sn.hi >= sn.base.perHr);
+  const c = TW.costPerKm(detail); assert.ok(Math.abs(c.perKm - (c.fuel + c.wear)) < 1e-12 && c.perKmAll > c.perKm);
+  console.log('v19 OK  owned/rented, detailed wear, traffic, cycle');
+}
+
+// ---- v20: weekly and monthly periods ----
+{
+  const wk = TW.periods(rep, 'week'), mo = TW.periods(rep, 'month');
+  assert.ok(wk.length >= 3 && mo.length >= 1);
+  [wk, mo].forEach(list => {
+    const o = list.reduce((a, p) => a + p.orders, 0), n = list.reduce((a, p) => a + p.net, 0), h = list.reduce((a, p) => a + p.hours, 0);
+    assert.strictEqual(o, rep.total.n, 'every order is in exactly one period');
+    assert.ok(Math.abs(n - rep.total.net) < 1e-6 && Math.abs(h - rep.total.hours) < 1e-6, 'period nets and hours add up to the whole');
+    list.forEach(p => assert.ok(Math.abs(p.gross - p.fuel - p.maint - p.data - p.fixed - p.net) < 1e-6, 'each period balances'));
+  });
+  wk.forEach(p => { assert.strictEqual(new Date(p.from + 'T00:00:00Z').getUTCDay(), 1, 'weeks start on Monday'); assert.strictEqual(new Date(p.to + 'T00:00:00Z').getUTCDay(), 0); });
+  assert.ok(wk.slice(1).some(p => p.vsPrev), 'consecutive weeks know their change');
+  const w1 = wk.find(p => p.vsPrev); const prev = wk.find(p => p.key === new Date(Date.parse(w1.key + 'T00:00:00Z') - 7 * 864e5).toISOString().slice(0, 10));
+  assert.ok(Math.abs(w1.vsPrev.net - (w1.net - prev.net)) < 1e-9);
+  assert.ok(mo.every(p => /^\d{4}-\d{2}$/.test(p.key) && p.from.endsWith('-01')));
+  assert.deepStrictEqual(TW.periods(null, 'week'), []);
+  console.log('v20 OK  periods:', wk.length, 'weeks,', mo.length, 'months');
+}
+
+// ---- v21: payout reconciliation ----
+{
+  const s = [{ id: 'a', date: '2026-11-02', platform: 'Zomato', bonus: 50, orders: [{ pay: 100, incentive: 20, deduction: 10 }, { pay: 80, incentive: 0, deduction: 0 }] },
+             { id: 'b', date: '2026-11-04', platform: 'Swiggy', bonus: 0, orders: [{ pay: 200, incentive: 0, deduction: 0 }] },
+             { id: 'c', date: '2026-11-12', platform: 'Zomato', bonus: 0, orders: [{ pay: 500, incentive: 0, deduction: 0 }] }];
+  const mk = (amount, extra) => Object.assign({ id: 'p', platform: 'Zomato', from: '2026-11-02', to: '2026-11-08', amount }, extra || {});
+  const exp = 100 + 20 - 10 + 80 + 50;                                                          // 240: the other platform and the other week are excluded
+  const r = TW.reconcile(s, [mk(240)])[0]; assert.strictEqual(r.expected, exp); assert.strictEqual(r.status, 'match'); assert.strictEqual(r.orders, 2);
+  assert.strictEqual(TW.reconcile(s, [mk(200)])[0].status, 'short'); assert.strictEqual(TW.reconcile(s, [mk(200)])[0].gap, -40);
+  assert.strictEqual(TW.reconcile(s, [mk(300)])[0].status, 'over');
+  assert.strictEqual(TW.reconcile(s, [mk(245)])[0].status, 'match', 'a few rupees of rounding is not a gap');
+  assert.strictEqual(TW.reconcile(s, [mk(100, { from: '2026-10-01', to: '2026-10-07' })])[0].status, 'nodata', 'no orders in the period: no verdict');
+  assert.strictEqual(TW.reconcile(s, [mk(440, { platform: 'All' })])[0].expected, exp + 200, 'All platforms');
+  assert.deepStrictEqual(TW.reconcile(s, []), []);
+  const two = TW.reconcile(s, [mk(240), mk(500, { id: 'q', from: '2026-11-09', to: '2026-11-15' })]); assert.strictEqual(two[0].id, 'q', 'newest first');
+  console.log('v21 OK  payout reconciliation');
+}
+
+// ---- v22: platform comparison ----
+{
+  const cp = TW.comparePlatforms(rep), plats = new Set(rep.orders.map(o => o.platform));
+  assert.strictEqual(cp.rows.length, plats.size);
+  assert.ok(cp.rows.every((r, i, a) => !i || a[i - 1].perHr >= r.perHr), 'best first');
+  cp.rows.filter(r => r.enough).forEach(r => assert.ok(r.lo <= r.perHr + 1e-9 && r.hi >= r.perHr - 1e-9, 'the range contains the estimate'));
+  assert.deepStrictEqual(TW.comparePlatforms(rep).rows.map(r => [r.lo, r.hi]), cp.rows.map(r => [r.lo, r.hi]), 'deterministic');
+  const thin = TW.analyze([{ id: 'x', date: '2026-11-01', platform: 'Zomato', onlineMin: 120, bonus: 0, orders: [{ hour: 12, zone: 'A', km: 2, pay: 50, incentive: 0, deduction: 0, durMin: 15 }] }], TW.defaultProfile('petrol'));
+  const tc = TW.comparePlatforms(thin); assert.ok(!tc.comparable && !tc.rows[0].enough && tc.rows[0].lo === null, 'one day gives no range');
+  assert.ok(cp.byDaypart.every(d => ['none', 'only', 'clear', 'close'].includes(d.verdict)));
+  cp.byDaypart.filter(d => d.runner).forEach(d => assert.ok(d.best.perHr >= d.runner.perHr));
+  assert.deepStrictEqual(TW.comparePlatforms(null).rows, []);
+  console.log('v22 OK  platform comparison', cp.rows.map(r => r.platform + ' ' + Math.round(r.perHr) + (r.enough ? ' [' + Math.round(r.lo) + '-' + Math.round(r.hi) + ']' : '')).join(', '));
+}
+
+// ---- v23: statement v2 ----
+{
+  const st = TW.statementData(rep, { name: 'Test' }, { provenance: TW.provenance(sessions) });
+  assert.strictEqual(st.version, 2); assert.ok(st.months.length >= 1 && st.months.every(m => m.length === 7));
+  const ms = TW.periods(rep, 'month'); assert.deepStrictEqual(st.months.map(m => m[0]), ms.map(m => m.key));
+  assert.ok(st.monthStats.counted >= 1 && st.monthStats.lowestBeforeEmi <= st.monthStats.avgBeforeEmi);
+  assert.ok(st.emiCapacityLow <= st.emiCapacity + 1, 'the weakest month never supports more EMI than the typical one');
+  assert.strictEqual(st.provenance.orders, rep.total.n);
+  const p = TW.provenance([{ source: 'ai', orders: [1, 2] }, { source: 'ocr', orders: [1], edited: true }, { source: 'manual', orders: [1] }, { orders: [1] }, { source: 'demo', orders: [1] }]);
+  assert.deepStrictEqual([p.orders, p.bySource.ai, p.bySource.ocr, p.bySource.manual, p.bySource.demo, p.editedOrders, p.editedSessions], [6, 2, 1, 2, 1, 1, 1]);
+  assert.ok(JSON.stringify(st).length < 20000, 'small enough to register');
+  console.log('v23 OK  statement v2:', st.months.length, 'months, lowest', st.monthStats.lowestBeforeEmi);
+}
