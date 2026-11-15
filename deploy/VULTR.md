@@ -1,8 +1,12 @@
 # Deploying TrueWage on Vultr
 
-Status: **documented, not executed by the author.** The development machine had no Docker and no Vultr account, so these steps were not run end to end. The application itself (same `server.py`, same files) is tested locally, and `tools/smoke.py` is provided so you can verify a deployment in one command. Console menu names may differ slightly from Vultr's current UI.
+Status: **deployed on a Vultr Cloud Compute server** with `deploy/vultr-startup.sh` (first-boot script: Docker, this repository, Caddy with automatic HTTPS on a free `<ip>.sslip.io` name). The manual steps below do the same thing by hand. `tools/smoke.py` verifies a deployment in one command. Console menu names may differ slightly from Vultr's current UI.
 
 TrueWage needs very little: one small Linux VM, Python 3 or Docker, and (optionally) a domain for HTTPS. The database is a single SQLite file inside the data folder (no separate DB server). **Use HTTPS for real riders**: passwords and session cookies must not travel over plain HTTP.
+
+## 0. One-paste setup (no SSH needed)
+
+In the Vultr console open **Products > Scripts > Add Startup Script**, paste the contents of [`vultr-startup.sh`](vultr-startup.sh), then pick that script when you deploy the server (Ubuntu 24.04, 1 vCPU / 1 GB is enough). About five minutes after the server shows *Running*, the app answers at `https://<server-ip-with-dashes>.sslip.io` (for IP 1.2.3.4 that is `https://1-2-3-4.sslip.io`). The script is safe to run again. Progress is in `/var/log/truewage-setup.log`.
 
 ## 1. Create the server
 
