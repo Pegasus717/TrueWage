@@ -862,15 +862,19 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
 
   async function renderVerify(v) {
     let ok = false, d = null, hash = '', reg = null, created = null;
+    // 'none' = the server answered but has no such statement; null = the server could not be reached
+    const lookup = async code => { try { const r = await fetch('api/statement/' + code); if (r.ok) return await r.json(); return r.status === 404 ? 'none' : null; } catch (e) { return null; } };
     try {
       const param = location.hash.slice(8);
       if (/^TW-[0-9A-F]{12}$/.test(param)) {
-        const rj = await fetch('api/statement/' + param).then(r => r.ok ? r.json() : null);
-        if (rj && rj.data) { d = rj.data; hash = rj.hash; reg = 'match'; created = rj.created; ok = (await R.sha256Text(JSON.stringify(d))) === hash && ('TW-' + hash.slice(0, 12).toUpperCase()) === param; }
+        const rj = await lookup(param);
+        if (rj === 'none') reg = 'none';
+        if (rj && rj !== 'none' && rj.data) { d = rj.data; hash = rj.hash; reg = 'match'; created = rj.created; ok = (await R.sha256Text(JSON.stringify(d))) === hash && ('TW-' + hash.slice(0, 12).toUpperCase()) === param; }
       } else {
         const j = JSON.parse(unb64u(param)); d = j.d; hash = j.h;
         ok = (await R.sha256Text(JSON.stringify(d))) === hash;
-        try { const r = await fetch('api/statement/TW-' + hash.slice(0, 12).toUpperCase()); if (r.ok) { const rj = await r.json(); reg = rj.hash === hash ? 'match' : 'mismatch'; created = rj.created; } } catch (e) { /* offline */ }
+        const rj = await lookup('TW-' + hash.slice(0, 12).toUpperCase());
+        if (rj === 'none') reg = 'none'; else if (rj) { reg = rj.hash === hash ? 'match' : 'mismatch'; created = rj.created; }
       }
     } catch (e) { ok = false; }
     const good = ok && reg !== 'mismatch', code = hash ? 'TW-' + hash.slice(0, 12).toUpperCase() : '';
@@ -883,7 +887,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
         ${d.provenance && d.provenance.orders ? `<p class="note">Order records: ${Math.round(((d.provenance.bySource || {}).ai || 0) / d.provenance.orders * 100)}% read by AI from screenshots, ${Math.round(((d.provenance.bySource || {}).ocr || 0) / d.provenance.orders * 100)}% read on the phone, ${Math.round(((d.provenance.bySource || {}).manual || 0) / d.provenance.orders * 100)}% typed in${d.provenance.editedOrders ? ', ' + d.provenance.editedOrders + ' orders edited afterwards' : ''}.</p>` : ''}
         <div style="color:#555;font-weight:600;margin-top:14px">${t('ev_h')}</div>${evidenceTable()}${d.evidence && d.evidence.demo ? '<p class="note"><b>DEMO DATA</b></p>' : ''}` : ''}
       <p class="note" style="margin-top:12px">Integrity check: ${ok ? '<span class="ok">numbers match code ' + esc(code) + '</span>' : '<span class="no">tampered or corrupted</span>'}<br>
-      Registry check: ${reg === 'match' ? '<span class="ok">registered, hash matches</span>' : reg === 'mismatch' ? '<span class="no">registry hash differs</span>' : 'not reachable (static hosting). Run the server for registry checks.'}</p>
+      Registry check: ${reg === 'match' ? '<span class="ok">registered, hash matches</span>' : reg === 'mismatch' ? '<span class="no">registry hash differs</span>' : reg === 'none' ? 'this code is not in the TrueWage registry' : 'could not be reached (offline). The numbers above were still checked on this device.'}</p>
       <p class="note">${t('pdf_disclaimer')}</p><button class="btn alt noprint" style="margin-top:12px" id="vback">${t('back')}</button></div>`;
     $('#vback').onclick = () => { history.replaceState(null, '', location.pathname); rerender(); };
   }
