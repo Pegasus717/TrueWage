@@ -18,7 +18,7 @@ erDiagram
     USERS ||--|| USERDATA : "synced document"
 ```
 
-Server-wide tables: `registry` (statement hashes), `contributions` (anonymous city data), `extract_cache`, `ai_budget`, `kv`.
+Per-rider tables also include `review_stats` (counts of corrections after each reading). Server-wide tables: `registry` (statement hashes), `contributions` (anonymous city data), `extract_cache`, `ai_budget`, `kv`.
 
 ## Screenshot reading
 
@@ -54,6 +54,39 @@ sequenceDiagram
 
 The server identifies the rider only from the session cookie, never from the request body.
 
+## Account recovery
+
+There is no SMS or e-mail, so a forgotten password is reset with a recovery code instead.
+
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant S as Server
+    participant D as Database
+    B->>S: register
+    S->>D: store password hash and recovery-code hash
+    S-->>B: recovery code (shown once)
+    Note over B: rider writes the code down
+    B->>S: recover (phone, code, new password)
+    S->>D: verify code hash, set new password hash, store a new code hash, close all sessions
+    S-->>B: new session and a new recovery code
+```
+
+- The code is 20 characters from a 32-letter alphabet without look-alikes (100 random bits), stored only as a scrypt hash.
+- A used code is replaced at once. A rider can also make a new one from the account screen with their password, which is how accounts created before v2 get their first code.
+- Wrong guesses are limited to 5 per number and address and 30 per address in 15 minutes. An unknown number, a wrong code and an account with no code all return the same answer after the same amount of work.
+- The same screen has a button that closes every session except the current one.
+
+## Measured reading accuracy
+
+After a rider checks a reading and saves, the app compares what the reader returned with what was saved and sends only counts: orders read, orders left unchanged, orders removed, orders added, values read and values changed. No amounts, places or screenshots are sent. A removed order counts as all six of its values being wrong. Readings of the built-in sample screenshots are never counted.
+
+`GET /api/accuracy` returns the totals per reader (`ai` or `ocr`). A percentage is returned only once at least 100 values have been checked. The admin overview shows the same figures.
+
+## Service reminder
+
+The reminder is computed in the browser from the odometer readings riders already enter with fuel fill-ups and services. It needs at least one service with an odometer reading, and the interval (default 3,000 km) is the rider's setting. A logged service is counted as a repair cost and replaces the per-km repair estimate for that period.
+
 ## How the numbers are calculated
 
 ```
@@ -74,10 +107,14 @@ real pay per hour = cash remaining / online hours (waiting included)
 
 | Endpoint | Purpose |
 |---|---|
-| `POST /api/auth/register`, `/login`, `/logout` | Account and session |
+| `POST /api/auth/register`, `/login`, `/logout` | Account and session. Register also returns the recovery code, once. |
+| `POST /api/auth/recover` | Reset a forgotten password with the recovery code |
+| `POST /api/me/recovery`, `/api/me/logout-others` | Make a new recovery code (needs the password); log out all other devices |
 | `GET /api/me`, `PUT /api/me/data` | Profile and the rider's saved data |
 | `GET /api/me/history`, `GET /api/me/export.csv` | History and CSV export |
 | `POST /api/extract` | Read screenshots with AI |
+| `POST /api/me/review` | Counts of what the rider corrected after a reading |
+| `GET /api/accuracy` | Measured accuracy per reader |
 | `POST /api/ask` | Answer a question from the rider's numbers |
 | `POST /api/statement`, `GET /api/statement/<id>` | Register and verify an income statement |
 | `POST /api/contribute`, `GET /api/city` | Anonymous city data |

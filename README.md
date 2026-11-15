@@ -49,8 +49,10 @@ The numbers shown belong to a simulated demo rider and are labelled that way in 
 | Expense log | Fuel fill-ups with odometer readings measure the real petrol cost per km. Repairs, tolls and fines are counted once. |
 | Order checker | Tells the rider whether a new order is worth taking. An offer screenshot can be scanned instead of typed. |
 | Insights | Best days, times and areas, a plan for the day, a weekly summary and a what-if simulator. |
-| Accounts | Phone and password login, a private dashboard per rider, history, CSV export and account deletion. |
+| Accounts | Phone and password login, a private dashboard per rider, history, CSV export and account deletion. A one-time recovery code resets a forgotten password, and one tap logs out every other device. |
+| Service reminder | Uses the odometer readings from fuel and service entries to show how many kilometres are left before the next service. |
 | Income statement | A printable statement with a SHA-256 hash and QR code, so a lender can check it was not altered. |
+| Reading accuracy | Counts how many values riders had to correct after each reading, so the accuracy of the AI reader and of on-device OCR is measured from real use. |
 | City data | Anonymous pay data by area and time, shown only when at least 20 riders have contributed. |
 | Languages | English, Hindi, Telugu and Tamil, with typed or spoken questions. |
 
@@ -248,6 +250,7 @@ The server tests run against a local mock of the Claude API, so they never spend
 
 ## Security and privacy
 
+- Passwords and recovery codes are stored as scrypt hashes. A recovery code is 100 random bits, shown once, and replaced by a new one each time it is used.
 - Passwords are stored as scrypt hashes. Session tokens are stored only as hashes and sent in `HttpOnly`, `SameSite=Strict` cookies (`Secure` over HTTPS).
 - Login attempts are rate-limited, and requests that change data are protected against CSRF.
 - Every database table has Row Level Security enabled with no access for Supabase's public roles. Only the server connects to the database.
@@ -259,8 +262,8 @@ The server tests run against a local mock of the Claude API, so they never spend
 
 ## Limitations
 
-- Login uses a phone number and password with no SMS or e-mail check, so a forgotten password cannot be recovered.
-- The AI reader has been spot-checked on a small set of screenshots, not measured at scale. Every import ends with a review step.
+- Login uses a phone number and password with no SMS or e-mail check. A forgotten password is reset with the recovery code shown at sign-up, so a rider who loses both the password and the code cannot get back in.
+- The AI reader has been spot-checked on a small set of screenshots. Its accuracy is now measured from rider corrections (admin overview and `GET /api/accuracy`), but no figure is published until riders have checked at least 100 values. Every import ends with a review step.
 - City analytics in the demo are simulated.
 - GPS, voice input and sharing from the phone gallery were tested in a desktop browser, not on a real phone.
 - The income statement is reported by the rider and protected against tampering. It is not certified by a platform or a bank.

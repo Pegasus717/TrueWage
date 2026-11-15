@@ -52,7 +52,7 @@
     let extras = 0, repairs = 0, n = 0;
     (expenses || []).forEach(e => {
       if (!e || e.category === 'fuel' || !(+e.amount > 0) || !e.date || e.date < d0 || e.date > d1) return;
-      extras += +e.amount; n++; if (e.category === 'repair') repairs += +e.amount;
+      extras += +e.amount; n++; if (e.category === 'repair' || e.category === 'service') repairs += +e.amount;
     });
     return { extras, repairs, n, hasRepair: repairs > 0 };
   }

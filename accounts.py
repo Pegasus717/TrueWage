@@ -5,7 +5,10 @@ Security model
   * Sessions: 32-byte random token in an HttpOnly, SameSite=Strict cookie; only its SHA-256 is stored server-side; 30-day expiry.
   * Login throttling: 5 failures per phone+IP per 15 minutes, 30 per IP; unknown phones cost the same hashing time as known ones.
   * Each rider's data lives in their own row and is only ever read through their own session (no user id is accepted from the client).
-  * No SMS or e-mail is sent: this is phone-number + password sign-in. A forgotten password cannot be recovered (documented).
+  * No SMS or e-mail is sent: sign-in is phone number + password. A forgotten password is recovered with a one-time RECOVERY CODE the rider
+    is shown at sign-up (100 random bits, stored only as a scrypt hash, replaced by a new code each time it is used).
+  * Review statistics: after a rider checks what the reader found, only COUNTS of what they had to correct are stored (no values), which is
+    how the real accuracy of the AI reader and of on-device OCR is measured.
 
 Data model
   * userdata   one versioned JSON document per rider: what the browser syncs (source of truth for the app, optimistic concurrency).
@@ -24,12 +27,16 @@ MAX_DATA_BYTES = 3 * 1024 * 1024
 LANGS = {"en", "hi", "te", "ta"}
 CITIES = {"Hyderabad", "Bengaluru"}
 VEHICLES = {"petrol", "ev", "cng", "car"}
-PROFILE_KEYS = {"mileage", "fuelPrice", "maintPerKm", "deadKm", "dataPerHour", "fixedPerDay", "minWage", "fuelPerKmOverride"}
+PROFILE_KEYS = {"mileage", "fuelPrice", "maintPerKm", "deadKm", "dataPerHour", "fixedPerDay", "minWage", "fuelPerKmOverride", "serviceEvery"}
 FLAGS = {"shared", "vehicleOk", "tourDone", "big", "demo"}
-EXPENSE_CATS = {"fuel", "parking_toll", "fine", "repair", "other"}
+EXPENSE_CATS = {"fuel", "parking_toll", "fine", "repair", "service", "other"}
 AI_USER_DAILY = int(os.environ.get("TRUEWAGE_AI_USER_DAILY", "60"))      # images one rider may have read by AI per day
 ADMIN_PHONES = {x.strip() for x in os.environ.get("TRUEWAGE_ADMIN_PHONES", "").split(",") if x.strip()}   # riders who may open the admin overview
 AI_USER_ASKS = int(os.environ.get("TRUEWAGE_AI_USER_ASKS", "100"))        # Ask questions per rider per day      # images one rider may have read by AI per day
+
+RECOVERY_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"                    # 32 symbols, no 0/O/1/I so it can be read out and typed from paper
+RECOVERY_LEN = 20                                                           # 20 x 5 bits = 100 bits
+READERS = {"ai", "ocr"}
 
 _lock = threading.Lock()
 _fails = defaultdict(deque)
@@ -107,7 +114,23 @@ def is_admin(u):
 
 
 def public(u):
-    return {"id": u["id"], "name": u["name"], "phone4": u["phone"][-4:], "phoneMasked": "XXXXXX" + u["phone"][-4:], "lang": u["lang"], "admin": is_admin(u)}
+    return {"id": u["id"], "name": u["name"], "phone4": u["phone"][-4:], "phoneMasked": "XXXXXX" + u["phone"][-4:], "lang": u["lang"], "admin": is_admin(u), "recovery": bool(u.get("recovery"))}
+
+
+# ---------------- recovery code ----------------
+def new_recovery_code():
+    raw = "".join(secrets.choice(RECOVERY_ALPHABET) for _ in range(RECOVERY_LEN))
+    return "-".join(raw[i:i + 5] for i in range(0, RECOVERY_LEN, 5))
+
+
+def norm_recovery(code):
+    """Accept the code as typed: any case, with or without dashes and spaces. Anything that is not a valid code becomes ''."""
+    raw = re.sub(r"[\s\-]", "", str(code or "")).upper()
+    return raw if len(raw) == RECOVERY_LEN and all(ch in RECOVERY_ALPHABET for ch in raw) else ""
+
+
+def _recovery_hash(code):
+    return hash_password(norm_recovery(code))
 
 
 # ---------------- sessions ----------------
@@ -138,28 +161,31 @@ def register(name, phone, password, lang):
     name, phone, password = clean_name(name), norm_phone(phone), check_password(password)
     lang = lang if lang in LANGS else "en"
     pw = hash_password(password)
+    code = new_recovery_code()
     with _conn() as c:
         try:
-            uid = c.execute("INSERT INTO users(phone,name,pw,lang,created) VALUES(?,?,?,?,?) RETURNING id", (phone, name, pw, lang, int(time.time()))).fetchone()["id"]
+            uid = c.execute("INSERT INTO users(phone,name,pw,lang,created,recovery) VALUES(?,?,?,?,?,?) RETURNING id", (phone, name, pw, lang, int(time.time()), _recovery_hash(code))).fetchone()["id"]
         except store.integrity_errors():
             raise AuthError("phone_exists", 409)
         c.execute("INSERT INTO userdata(user_id,json,version,updated) VALUES(?,?,0,?)", (uid, "{}", int(time.time())))
         token = _new_session(c, uid)
         c.execute("INSERT INTO events(user_id,ts,kind,detail) VALUES(?,?,?,?)", (uid, int(time.time()), "register", None))
-        return dict(c.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()), token
+        return dict(c.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()), token, code
 
 
-def _throttled(key_phone, ip):
+def _throttled(key_phone, ip, scope="p"):
+    """Seconds the caller must wait, or 0. Login ("p") and recovery ("r") keep separate counters: 5 misses per phone+IP and 30 per IP in 15 minutes."""
     now = time.time()
+    pk, ik = (scope, key_phone, ip), (scope + "i", ip)
     with _lock:
-        for k in (("p", key_phone, ip), ("i", ip)):
+        for k in (pk, ik):
             q = _fails[k]
             while q and now - q[0] > 900:
                 q.popleft()
-        if len(_fails[("p", key_phone, ip)]) >= 5:
-            return int(900 - (now - _fails[("p", key_phone, ip)][0])) + 1
-        if len(_fails[("i", ip)]) >= 30:
-            return int(900 - (now - _fails[("i", ip)][0])) + 1
+        if len(_fails[pk]) >= 5:
+            return int(900 - (now - _fails[pk][0])) + 1
+        if len(_fails[ik]) >= 30:
+            return int(900 - (now - _fails[ik][0])) + 1
     return 0
 
 
@@ -179,7 +205,7 @@ def login(phone, password, ip):
         if not ok:
             with _lock:
                 _fails[("p", phone, ip)].append(time.time())
-                _fails[("i", ip)].append(time.time())
+                _fails[("pi", ip)].append(time.time())
             raise AuthError("bad_credentials", 401)
         with _lock:
             _fails.pop(("p", phone, ip), None)
@@ -195,6 +221,56 @@ def change_password(user_id, old, new, keep_token):
             raise AuthError("bad_credentials", 401)
         c.execute("UPDATE users SET pw=? WHERE id=?", (hash_password(new), user_id))
         c.execute("DELETE FROM sessions WHERE user_id=? AND token_hash<>?", (user_id, hashlib.sha256((keep_token or "").encode()).hexdigest()))
+
+
+def recover(phone, code, new_password, ip):
+    """Forgot-password flow: the one-time recovery code proves the rider owns the account. On success the password is replaced, every session is
+    closed, the used code is retired and a fresh one is issued (returned so the app can show it once). Failures cost the same time either way."""
+    try:
+        phone = norm_phone(phone)
+    except AuthError:
+        raise AuthError("bad_recovery", 401)
+    check_password(new_password)
+    wait = _throttled(phone, ip, "r")
+    if wait:
+        raise AuthError("locked", 429, wait)
+    norm = norm_recovery(code)
+    with _conn() as c:
+        row = c.execute("SELECT * FROM users WHERE phone=?", (phone,)).fetchone()
+        has = bool(row and row["recovery"])
+        ok = verify_password(norm or "invalid", row["recovery"] if has else _DUMMY) and bool(norm) and has
+        if not ok:
+            with _lock:
+                _fails[("r", phone, ip)].append(time.time())
+                _fails[("ri", ip)].append(time.time())
+            raise AuthError("bad_recovery", 401)
+        with _lock:
+            _fails.pop(("r", phone, ip), None)
+        fresh = new_recovery_code()
+        c.execute("UPDATE users SET pw=?, recovery=? WHERE id=?", (hash_password(new_password), _recovery_hash(fresh), row["id"]))
+        c.execute("DELETE FROM sessions WHERE user_id=?", (row["id"],))
+        c.execute("INSERT INTO events(user_id,ts,kind,detail) VALUES(?,?,?,?)", (row["id"], int(time.time()), "recovered", None))
+        token = _new_session(c, row["id"])
+        return dict(c.execute("SELECT * FROM users WHERE id=?", (row["id"],)).fetchone()), token, fresh
+
+
+def regenerate_recovery(user_id, password):
+    """Issue a new recovery code (the old one stops working). Needs the current password. Also how riders who signed up before v2 get their first code."""
+    with _conn() as c:
+        row = c.execute("SELECT pw FROM users WHERE id=?", (user_id,)).fetchone()
+        if not row or not isinstance(password, str) or not verify_password(password, row["pw"]):
+            raise AuthError("bad_credentials", 401)
+        code = new_recovery_code()
+        c.execute("UPDATE users SET recovery=? WHERE id=?", (_recovery_hash(code), user_id))
+        c.execute("INSERT INTO events(user_id,ts,kind,detail) VALUES(?,?,?,?)", (user_id, int(time.time()), "recovery_code", None))
+        return code
+
+
+def logout_others(user_id, keep_token):
+    """Close every session of this rider except the one making the request (a lost or shared phone)."""
+    with _conn() as c:
+        c.execute("DELETE FROM sessions WHERE user_id=? AND token_hash<>?", (user_id, hashlib.sha256((keep_token or "").encode()).hexdigest()))
+        c.execute("INSERT INTO events(user_id,ts,kind,detail) VALUES(?,?,?,?)", (user_id, int(time.time()), "logout_others", None))
 
 
 def delete_account(user_id, password):
@@ -409,6 +485,36 @@ def log_import(user_id, reader, images, cached, sent, sessions, orders, models):
                   (user_id, int(time.time()), reader, images, cached, sent, sessions, orders, ",".join(models or [])))
 
 
+def log_review(user_id, reader, orders_read, orders_untouched, orders_removed, orders_added, fields_read, fields_changed):
+    """Store the COUNTS of what a rider corrected while checking a reading. No amounts, places or screenshots are kept."""
+    if reader not in READERS:
+        raise AuthError("bad_data")
+    n = lambda v, hi=100000: int(_num(v, 0, hi))                      # noqa: E731
+    r, u, rm, ad, fr, fc = n(orders_read), n(orders_untouched), n(orders_removed), n(orders_added), n(fields_read, 1000000), n(fields_changed, 1000000)
+    if u + rm > r or fc > fr or (r == 0 and fr):
+        raise AuthError("bad_data")                                     # impossible counts: refuse instead of skewing the accuracy figure
+    with _conn() as c:
+        c.execute("INSERT INTO review_stats(user_id,ts,reader,orders_read,orders_untouched,orders_removed,orders_added,fields_read,fields_changed) VALUES(?,?,?,?,?,?,?,?,?)",
+                  (user_id, int(time.time()), reader, r, u, rm, ad, fr, fc))
+
+
+MIN_FIELDS_FOR_ACCURACY = 100
+
+
+def accuracy():
+    """Measured reading accuracy per reader, from what riders had to correct. 'ready' only once enough fields were checked to mean something."""
+    out = {}
+    with _conn() as c:
+        for r in c.execute("SELECT reader, COUNT(*) AS reviews, COALESCE(SUM(orders_read),0) AS orders, COALESCE(SUM(orders_untouched),0) AS untouched, "
+                           "COALESCE(SUM(orders_removed),0) AS removed, COALESCE(SUM(orders_added),0) AS added, COALESCE(SUM(fields_read),0) AS fields, "
+                           "COALESCE(SUM(fields_changed),0) AS changed, COUNT(DISTINCT user_id) AS riders FROM review_stats GROUP BY reader").fetchall():
+            f, o = int(r["fields"]), int(r["orders"])
+            out[r["reader"]] = {"reviews": int(r["reviews"]), "riders": int(r["riders"]), "orders": o, "ordersUntouched": int(r["untouched"]), "ordersRemoved": int(r["removed"]),
+                                "ordersAdded": int(r["added"]), "fields": f, "fieldsChanged": int(r["changed"]), "ready": f >= MIN_FIELDS_FOR_ACCURACY,
+                                "fieldAccuracy": round(1 - int(r["changed"]) / f, 4) if f else None, "orderAccuracy": round(int(r["untouched"]) / o, 4) if o else None}
+    return out
+
+
 def log_statement(user_id, sid, period_from, period_to, monthly):
     with _conn() as c:
         c.execute(UP_STMT, (user_id, str(sid)[:30], int(time.time()), str(period_from or "")[:10], str(period_to or "")[:10], _num(monthly, 0, 1e7)))
@@ -495,4 +601,4 @@ def admin_overview():
             "(SELECT MAX(ts) FROM events v WHERE v.user_id=u.id) AS last_active FROM users u ORDER BY u.id DESC LIMIT 200").fetchall()]
     for r in rows:
         r["phone"] = "XXXXXX" + r["phone"][-4:]
-    return {"totals": tot, "riders": rows}
+    return {"totals": tot, "riders": rows, "accuracy": accuracy()}

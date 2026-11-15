@@ -314,6 +314,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
           ${advice.length ? `<section class="card o-adv"><div class="rows between"><h3 class="h3">${t('advice_h')}</h3><button class="link" id="to-ins">${t('more_advice')}</button></div>${adviceRows(advice)}</section>` : ''}
           ${planCard(rep, plan)}
           ${planDayCard(rep)}
+          ${serviceCardHTML()}
           ${weekCardHTML(rep)}
         </div>
       </div>`;
@@ -339,6 +340,8 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     const sim = $('#sim', v); if (sim) sim.onchange = () => { S.simHour = sim.value === '' ? null : +sim.value; renderHome(); };
     const pg = $('#pd-goal', v); if (pg) pg.onchange = () => { S.goal = Math.max(100, parseFloat(pg.value) || 800); save(); renderHome(); };
     const ps = $('#pd-spk', v); if (ps) ps.onclick = () => speak($$('#pd-lines li', v).map(x => x.textContent).concat([$('#pd-total', v).textContent]));
+    const svl = $('#sv-log', v); if (svl) svl.onclick = () => { ui.expCat = 'service'; openSheet('expenses'); };
+    const sve = $('#sv-every', v); if (sve) sve.onchange = () => { S.profile.serviceEvery = Math.max(500, Math.min(20000, parseFloat(sve.value) || 3000)); save(); if (S.user) scheduleSync(); renderHome(); };
     const wm = $('#wk-more', v); if (wm) wm.onclick = () => { S.insSeg = 'coach'; setTab('insights'); };
   }
 
@@ -355,6 +358,24 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
       <select id="sim" class="sel" aria-label="${t('plan_sim')}">${opts}</select></div>
       ${plan.state === 'nodata' ? '' : `<div style="margin-top:8px"><span class="state ${plan.state}"><i></i>${plan.state === 'good' ? t('oc_take') : t('oc_skip')}</span></div>`}
       <p style="margin-top:6px">${esc(msg)}</p><div class="tl">${cells}</div><div class="tlx">${hours.map(h => `<span>${h % 3 === 0 ? h : ''}</span>`).join('')}</div></section>`;
+  }
+  /** Service reminder from the odometer readings the rider already logs with fuel fill-ups and services. Nothing is guessed: no odometer, no card. */
+  function serviceInfo() {
+    const withOdo = (S.expenses || []).filter(e => e && e.odo > 0);
+    if (!withOdo.length) return null;
+    const odo = Math.max.apply(null, withOdo.map(e => e.odo)), every = Math.max(500, Math.min(20000, +S.profile.serviceEvery || 3000));
+    const sv = withOdo.filter(e => e.category === 'service');
+    if (!sv.length) return { odo, every, none: true };
+    const last = Math.max.apply(null, sv.map(e => e.odo)), left = last + every - odo;
+    return { odo, every, last, left, state: left <= 0 ? 'over' : left <= 300 ? 'soon' : 'ok', used: Math.max(0, Math.min(100, Math.round((odo - last) / every * 100))) };
+  }
+  function serviceCardHTML() {
+    const v = serviceInfo(); if (!v) return '';
+    const line = v.none ? t('sv_none') : t(v.state === 'over' ? 'sv_over' : v.state === 'soon' ? 'sv_soon' : 'sv_due', { km: Math.abs(Math.round(v.left / 10) * 10).toLocaleString('en-IN') });
+    return `<section class="card o-svc ${v.none ? '' : 'svc-' + v.state}"><div class="rows between"><h3 class="h3">${t('sv_h')}</h3><button class="btn sm alt" id="sv-log">${t('sv_log')}</button></div>
+      <p class="svc-line" style="margin-top:8px">${esc(line)}</p>
+      ${v.none ? '' : `<div class="svcbar" aria-hidden="true"><i style="width:${v.used}%"></i></div><p class="note">${esc(t('sv_note', { odo: Math.round(v.odo).toLocaleString('en-IN'), last: Math.round(v.last).toLocaleString('en-IN') }))}</p>`}
+      <div class="field" style="margin-top:10px;max-width:220px"><label for="sv-every">${t('sv_every')}</label><input id="sv-every" type="number" inputmode="numeric" min="500" max="20000" step="100" value="${v.every}"></div></section>`;
   }
   function planDayCard(rep) {
     const pl = T.planDay(rep, S.goal);
@@ -900,11 +921,52 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
   }
   const authErr = e => {
     if (e.code === 'locked') return t('au_e_locked', { m: Math.max(1, Math.ceil((e.retry || 60) / 60)) });
-    const map = { bad_phone: 'au_e_bad_phone', bad_name: 'au_e_bad_name', bad_password: 'au_e_bad_password', phone_exists: 'au_e_phone_exists', bad_credentials: 'au_e_bad_credentials' };
+    const map = { bad_phone: 'au_e_bad_phone', bad_name: 'au_e_bad_name', bad_password: 'au_e_bad_password', phone_exists: 'au_e_phone_exists', bad_credentials: 'au_e_bad_credentials', bad_recovery: 'au_e_bad_recovery' };
     if (map[e.code]) return t(map[e.code]);
     return e.status ? t('au_e_generic') : t('au_e_net');
   };
+  function recoverForm(b) {
+    b.innerHTML = `<h3 class="h3">${t('au_recover_h')}</h3><p class="note" style="margin:6px 0 14px">${t('au_recover_p')}</p>
+      <form id="rcvform" novalidate class="stack">
+        <div class="field"><label for="rv-phone">${t('au_phone')}</label><input id="rv-phone" type="tel" inputmode="numeric" autocomplete="tel" maxlength="14" placeholder="98XXXXXXXX"></div>
+        <div class="field"><label for="rv-code">${t('au_code')}</label><input id="rv-code" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="30" placeholder="XXXXX-XXXXX-XXXXX-XXXXX" class="mono"></div>
+        <div class="field"><label for="rv-pw">${t('au_pw_new')}</label><div class="pwwrap"><input id="rv-pw" type="password" autocomplete="new-password" maxlength="128"><button type="button" class="link" id="rv-show">${t('au_show')}</button></div><small class="note">${t('au_pw_hint')}</small></div>
+        <div class="status err" id="rv-err" role="alert" hidden></div>
+        <button class="btn lg block" id="rv-go" type="submit">${t('au_recover_go')}</button></form>
+      <div class="center" style="margin-top:12px"><button class="link" id="rv-back">${t('au_back')}</button></div>`;
+    $('#rv-show', b).onclick = () => { const i = $('#rv-pw', b), on = i.type === 'password'; i.type = on ? 'text' : 'password'; $('#rv-show', b).textContent = t(on ? 'au_hide' : 'au_show'); };
+    $('#rv-back', b).onclick = () => { S.authMode = 'login'; renderSheet(); };
+    $('#rcvform', b).onsubmit = async e => {
+      e.preventDefault(); const err = $('#rv-err', b), go = $('#rv-go', b); err.hidden = true;
+      const phone = $('#rv-phone', b).value.replace(/[\s\-()]/g, '').replace(/^(\+91|91|0)(?=\d{10}$)/, ''), code = $('#rv-code', b).value.trim(), pw = $('#rv-pw', b).value;
+      const bad = !/^[6-9]\d{9}$/.test(phone) ? 'au_e_bad_phone' : pw.length < 8 ? 'au_e_bad_password' : !code ? 'au_e_bad_recovery' : null;
+      if (bad) { err.textContent = t(bad); err.hidden = false; return; }
+      go.disabled = true;
+      try {
+        const j = await api('POST', 'api/auth/recover', { phone, code, password: pw });
+        if (j.ai) ui.aiUse = j.ai;
+        afterAuth(j.user, j.data || {}, j.version || 0);
+        showRecovery(j.recoveryCode, 'new');
+      } catch (e2) { err.textContent = authErr(e2); err.hidden = false; go.disabled = false; }
+    };
+  }
+  /** The recovery code is shown once, right after it is made. The sheet cannot be closed until the rider confirms they saved it. */
+  function showRecovery(code, kind) { if (!code) return; S.user && (S.user.recovery = true); ui.recovery = { code, kind: kind || 'first', ack: false }; openSheet('recovery'); }
+  function recoverySheet(b) {
+    const r = ui.recovery; if (!r) { closeSheet(); return; }
+    b.innerHTML = `<p class="note">${esc(t(r.kind === 'first' ? 'rc_p' : 'rc_new_p'))}</p>
+      <div class="rc-code mono" id="rc-code" aria-label="${esc(t('rc_h'))}">${esc(r.code)}</div>
+      <div class="rows" style="margin:10px 0"><button class="btn alt" id="rc-copy">${t('rc_copy')}</button></div>
+      <div class="status err">${esc(t('rc_warn_never'))}</div>
+      <label class="rc-ack"><input type="checkbox" id="rc-ack"> <span>${t('rc_saved_chk')}</span></label>
+      <button class="btn lg block" id="rc-go" disabled>${t('rc_continue')}</button>`;
+    const ack = $('#rc-ack', b), go = $('#rc-go', b);
+    ack.onchange = () => { r.ack = ack.checked; go.disabled = !ack.checked; };
+    go.onclick = () => { ui.recovery = null; closeSheet(); };
+    $('#rc-copy', b).onclick = async () => { try { await navigator.clipboard.writeText(r.code); $('#rc-copy', b).textContent = t('rc_copied'); } catch (e) { const rg = document.createRange(); rg.selectNodeContents($('#rc-code', b)); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(rg); } };
+  }
   function authSheet(b) {
+    if (S.authMode === 'recover') return recoverForm(b);
     const reg = S.authMode === 'register';
     b.innerHTML = `${seg('amode', [['register', t('au_register')], ['login', t('au_login')]], S.authMode)}
       <form id="authform" novalidate style="margin-top:16px" class="stack">
@@ -912,12 +974,13 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
         <div class="field"><label for="au-phone">${t('au_phone')}</label><input id="au-phone" type="tel" inputmode="numeric" autocomplete="tel" maxlength="14" placeholder="98XXXXXXXX"></div>
         <div class="field"><label for="au-pw">${t('au_password')}</label><div class="pwwrap"><input id="au-pw" type="password" autocomplete="${reg ? 'new-password' : 'current-password'}" maxlength="128"><button type="button" class="link" id="au-show">${t('au_show')}</button></div>${reg ? `<small class="note">${t('au_pw_hint')}</small>` : ''}</div>
         <div class="status err" id="au-err" role="alert" hidden></div>
-        <button class="btn lg block" id="au-go" type="submit">${t(reg ? 'au_register' : 'au_login')}</button></form>
+        <button class="btn lg block" id="au-go" type="submit">${t(reg ? 'au_register' : 'au_login')}</button>${reg ? '' : `<div class="center"><button class="link" type="button" id="au-forgot">${t('au_forgot')}</button></div>`}</form>
       <p class="note" style="margin-top:14px">${t('au_privacy')}</p>
       <div class="center"><button class="link" id="au-guest">${t('au_guest')}</button><p class="note">${t('au_guest_note')}</p></div>`;
     $$('#amode button', b).forEach(x => x.onclick = () => { S.authMode = x.dataset.s; renderSheet(); });
     $('#au-show', b).onclick = () => { const i = $('#au-pw', b), on = i.type === 'password'; i.type = on ? 'text' : 'password'; $('#au-show', b).textContent = t(on ? 'au_hide' : 'au_show'); };
     $('#au-guest', b).onclick = () => { closeSheet(); };
+    const fg = $('#au-forgot', b); if (fg) fg.onclick = () => { S.authMode = 'recover'; renderSheet(); };
     $('#authform', b).onsubmit = async e => {
       e.preventDefault(); const err = $('#au-err', b), go = $('#au-go', b); err.hidden = true;
       const phone = $('#au-phone', b).value.replace(/[\s\-()]/g, '').replace(/^(\+91|91|0)(?=\d{10}$)/, ''), pw = $('#au-pw', b).value, name = reg ? $('#au-name', b).value.trim() : '';
@@ -928,6 +991,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
         const j = reg ? await api('POST', 'api/auth/register', { name, phone, password: pw, lang: S.lang }) : await api('POST', 'api/auth/login', { phone, password: pw });
         if (j.ai) ui.aiUse = j.ai;
         afterAuth(j.user, j.data || {}, j.version || 0);
+        if (j.recoveryCode) showRecovery(j.recoveryCode, 'first');
       } catch (e2) { err.textContent = authErr(e2); err.hidden = false; go.disabled = false; }
     };
   }
@@ -940,8 +1004,8 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
       $('#ac-reg', b).onclick = () => { S.authMode = 'register'; openSheet('auth'); }; $('#ac-login', b).onclick = () => { S.authMode = 'login'; openSheet('auth'); };
       $('#ac-set', b).onclick = () => openSheet('data'); return;
     }
-    b.innerHTML = `<div class="card acct"><span class="avatar big" aria-hidden="true">${esc(S.user.name.trim().charAt(0).toUpperCase())}</span><div><div class="h3">${esc(S.user.name)}</div><div class="note">XXXXXX${esc(S.user.phone4)}</div><div class="note" id="sync-state"></div></div></div>
-      <div class="menu" style="margin-top:12px"><button class="btn alt block" id="ac-hist">${t('hist_h')}</button><button class="btn alt block" id="ac-exp">${t('exp_h')}</button>${S.user.admin ? `<button class="btn alt block" id="ac-adm">${t('adm_h')}</button>` : ''}<button class="btn alt block" id="ac-set">${t('set_h')}</button><button class="btn alt block" id="ac-pw">${t('au_pw_change')}</button><button class="btn alt block" id="ac-out">${t('au_logout')}</button></div>
+    b.innerHTML = `${S.user.recovery ? '' : `<div class="status err" id="rc-nudge">${esc(t('rc_nudge'))}</div>`}<div class="card acct"><span class="avatar big" aria-hidden="true">${esc(S.user.name.trim().charAt(0).toUpperCase())}</span><div><div class="h3">${esc(S.user.name)}</div><div class="note">XXXXXX${esc(S.user.phone4)}</div><div class="note" id="sync-state"></div></div></div>
+      <div class="menu" style="margin-top:12px"><button class="btn alt block" id="ac-hist">${t('hist_h')}</button><button class="btn alt block" id="ac-exp">${t('exp_h')}</button>${S.user.admin ? `<button class="btn alt block" id="ac-adm">${t('adm_h')}</button>` : ''}<button class="btn alt block" id="ac-set">${t('set_h')}</button><button class="btn alt block" id="ac-pw">${t('au_pw_change')}</button><button class="btn alt block" id="ac-rc">${t(S.user.recovery ? 'rc_regen' : 'rc_make')}</button><button class="btn alt block" id="ac-oth">${t('au_logout_others')}</button><button class="btn alt block" id="ac-out">${t('au_logout')}</button></div>
       <div id="ac-form"></div>
       <div class="menu" style="margin-top:22px"><button class="btn alt block danger" id="ac-del">${t('au_delete')}</button></div>`;
     updateSyncUI();
@@ -952,6 +1016,13 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
         <div class="field"><label for="pw-new">${t('au_pw_new')}</label><input id="pw-new" type="password" autocomplete="new-password"><small class="note">${t('au_pw_hint')}</small></div><div class="status err" id="pw-err" hidden></div><button class="btn block" type="submit">${t('au_pw_change')}</button></form>`;
       $('#pwform', form).onsubmit = async e => { e.preventDefault(); const er = $('#pw-err', form); er.hidden = true;
         try { await api('POST', 'api/me/password', { old: $('#pw-old', form).value, new: $('#pw-new', form).value }); form.innerHTML = `<div class="status">${esc(t('au_pw_done'))}</div>`; } catch (x) { er.textContent = authErr(x); er.hidden = false; } };
+    };
+    $('#ac-oth', b).onclick = async () => { try { await api('POST', 'api/me/logout-others'); toast(t('au_others_done')); } catch (x) { toast(authErr(x)); } };
+    $('#ac-rc', b).onclick = () => {
+      form.innerHTML = `<form class="stack card" style="margin-top:12px" id="rcform"><p>${esc(t(S.user.recovery ? 'rc_new_p' : 'rc_make_p'))}</p><div class="field"><label for="rcf-pw">${t('au_password')}</label><input id="rcf-pw" type="password" autocomplete="current-password"></div>
+        <div class="status err" id="rcf-err" hidden></div><button class="btn block" type="submit">${t(S.user.recovery ? 'rc_regen' : 'rc_make')}</button></form>`;
+      $('#rcform', form).onsubmit = async e => { e.preventDefault(); const er = $('#rcf-err', form); er.hidden = true;
+        try { const j = await api('POST', 'api/me/recovery', { password: $('#rcf-pw', form).value }); showRecovery(j.recoveryCode, S.user.recovery ? 'new' : 'first'); } catch (x) { er.textContent = authErr(x); er.hidden = false; } };
     };
     $('#ac-del', b).onclick = () => {
       form.innerHTML = `<form class="stack card" style="margin-top:12px;border-color:var(--lost)" id="delform"><p>${esc(t('au_delete_q'))}</p><div class="field"><label for="del-pw">${t('au_password')}</label><input id="del-pw" type="password" autocomplete="current-password"></div>
@@ -1122,20 +1193,20 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
   }
 
   /* ---------- sheet: add screenshots (pick -> auto-read -> confirm), costs, data ---------- */
-  function openSheet(kind) { S.sheet = kind || 'import'; $('#sheet').hidden = false; document.body.style.overflow = 'hidden'; renderSheet(); syncFab(); if (S.sheet !== 'ask' && S.sheet !== 'auth') $('#sheet-x').focus(); }
-  function closeSheet() { const was = S.sheet; S.sheet = null; $('#sheet').hidden = true; document.body.style.overflow = ''; if ('speechSynthesis' in window) speechSynthesis.cancel(); if (was === 'costs' || was === 'data') rerender(); syncFab(); }
+  function openSheet(kind) { S.sheet = kind || 'import'; $('#sheet').hidden = false; document.body.style.overflow = 'hidden'; renderSheet(); syncFab(); if (S.sheet !== 'ask' && S.sheet !== 'auth' && S.sheet !== 'recovery') $('#sheet-x').focus(); }
+  function closeSheet() { if (S.sheet === 'recovery' && ui.recovery && !ui.recovery.ack) { toast(t('rc_saved_chk')); const a = $('#rc-ack'); if (a) a.focus(); return; } const was = S.sheet; S.sheet = null; $('#sheet').hidden = true; document.body.style.overflow = ''; if ('speechSynthesis' in window) speechSynthesis.cancel(); if (was === 'costs' || was === 'data') rerender(); syncFab(); }
   const syncFab = () => { const f = $('#fab'); if (f) f.hidden = !S.report || !!S.sheet; };
   function renderSheet() {
     const b = $('#sheet-body');
-    $('#sheet-t').textContent = S.sheet === 'costs' ? t('costs_h') : S.sheet === 'data' ? t('set_h') : S.sheet === 'ask' ? t('ask_h') : S.sheet === 'auth' ? t(S.authMode === 'register' ? 'au_register' : 'au_login') : S.sheet === 'account' ? t('au_account') : S.sheet === 'expenses' ? t('exp_h') : S.sheet === 'history' ? t('hist_h') : S.sheet === 'admin' ? t('adm_h') : t('add_shots');
-    if (S.sheet === 'costs') costsSheet(b); else if (S.sheet === 'data') dataSheet(b); else if (S.sheet === 'ask') askSheet(b); else if (S.sheet === 'auth') authSheet(b); else if (S.sheet === 'account') accountSheet(b); else if (S.sheet === 'expenses') expensesSheet(b); else if (S.sheet === 'history') historySheet(b); else if (S.sheet === 'admin') adminSheet(b); else importSheet(b);
+    $('#sheet-t').textContent = S.sheet === 'costs' ? t('costs_h') : S.sheet === 'data' ? t('set_h') : S.sheet === 'ask' ? t('ask_h') : S.sheet === 'recovery' ? t('rc_h') : S.sheet === 'auth' ? t(S.authMode === 'register' ? 'au_register' : S.authMode === 'recover' ? 'au_recover_h' : 'au_login') : S.sheet === 'account' ? t('au_account') : S.sheet === 'expenses' ? t('exp_h') : S.sheet === 'history' ? t('hist_h') : S.sheet === 'admin' ? t('adm_h') : t('add_shots');
+    if (S.sheet === 'costs') costsSheet(b); else if (S.sheet === 'data') dataSheet(b); else if (S.sheet === 'ask') askSheet(b); else if (S.sheet === 'recovery') recoverySheet(b); else if (S.sheet === 'auth') authSheet(b); else if (S.sheet === 'account') accountSheet(b); else if (S.sheet === 'expenses') expensesSheet(b); else if (S.sheet === 'history') historySheet(b); else if (S.sheet === 'admin') adminSheet(b); else importSheet(b);
   }
   function costsSheet(b) {
     b.innerHTML = `<div class="grid2">${costsHTML()}</div><p class="note" style="margin-top:10px">${t('cal_help')}</p>${S.meas && S.meas.reliable ? `<p class="note" style="margin-top:8px"><span class="pill">${t('sh_badge')}</span> ${esc(t('sh_measured', { f: S.meas.factor.toFixed(2), n: S.meas.pairs }))}</p>` : ''}<div class="center"><button class="btn lg" id="c-done">${t('done')}</button></div>`;
     bindCosts(b); $('#c-done', b).onclick = closeSheet;
   }
   /* ---------- expenses & fuel ---------- */
-  const EXP_CATS = ['fuel', 'parking_toll', 'fine', 'repair', 'other'];
+  const EXP_CATS = ['fuel', 'service', 'parking_toll', 'fine', 'repair', 'other'];
   function expensesSheet(b) {
     const today = localDate(Date.now()), fills = S.fills || T.fuelFromFills(S.expenses), rep = S.report;
     const list = (S.expenses || []).slice().sort((a, c) => a.date < c.date ? 1 : a.date > c.date ? -1 : 0).slice(0, 60);
@@ -1148,19 +1219,21 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
           <div class="field"><label for="ex-amt">${t('exp_amount')}</label><input id="ex-amt" type="number" inputmode="decimal" min="1" step="any"></div></div>
         <div class="grid2"><div class="field"><label for="ex-date">${t('exp_date')}</label><input id="ex-date" type="date" value="${today}" max="${today}"></div>
           <div class="field"><label for="ex-note">${t('exp_note')}</label><input id="ex-note" type="text" maxlength="80"></div></div>
-        <div class="grid2" id="ex-fuel"><div class="field"><label for="ex-l">${t('exp_litres')}</label><input id="ex-l" type="number" inputmode="decimal" min="0" step="any"></div>
-          <div class="field"><label for="ex-o">${t('exp_odo')}</label><input id="ex-o" type="number" inputmode="numeric" min="0" step="1"></div></div>
+        <div class="grid2" id="ex-fuel"><div class="field" id="ex-lw"><label for="ex-l">${t('exp_litres')}</label><input id="ex-l" type="number" inputmode="decimal" min="0" step="any"></div>
+          <div class="field" id="ex-ow"><label for="ex-o">${t('exp_odo')}</label><input id="ex-o" type="number" inputmode="numeric" min="0" step="1"></div></div>
         <div class="status err" id="ex-err" hidden></div>
         <button class="btn lg block" type="submit">${t('exp_add')}</button></form>
       <h3 class="h3" style="margin-top:18px">${t('exp_list')}</h3>
       ${list.length ? `<div class="exp-list">${list.map(e => `<div class="exp-row"><div><b>${esc(t('exp_c_' + e.category))}</b><small>${esc(dLabel(e.date, { day: 'numeric', month: 'short' }))}${e.odo ? ' · ' + Math.round(e.odo) + ' km' : ''}${e.litres ? ' · ' + e.litres + ' L' : ''}${e.note ? ' · ' + esc(e.note) : ''}</small></div><span class="num">${inr(e.amount)}</span><button class="link" data-del="${esc(e.id)}" aria-label="${esc(t('exp_del'))}">✕</button></div>`).join('')}</div>` : `<p class="muted">${t('exp_none')}</p>`}`;
-    const cat = $('#ex-cat', b), fuel = $('#ex-fuel', b), sync = () => { fuel.hidden = cat.value !== 'fuel'; }; cat.onchange = sync; sync();
+    const cat = $('#ex-cat', b), fuel = $('#ex-fuel', b), lw = $('#ex-lw', b), sync = () => { fuel.hidden = cat.value !== 'fuel' && cat.value !== 'service'; lw.hidden = cat.value !== 'fuel'; };
+    if (ui.expCat) { cat.value = ui.expCat; ui.expCat = null; }
+    cat.onchange = sync; sync();
     $('#exp-form', b).onsubmit = e => {
       e.preventDefault(); const er = $('#ex-err', b), amt = parseFloat($('#ex-amt', b).value), date = $('#ex-date', b).value, odo = parseFloat($('#ex-o', b).value) || 0, lit = parseFloat($('#ex-l', b).value) || 0;
       if (!(amt > 0 && amt <= 500000) || !/^\d{4}-\d{2}-\d{2}$/.test(date) || date > today) { er.textContent = t('exp_bad'); er.hidden = false; return; }
       if (cat.value === 'fuel' && odo > 0 && (S.expenses || []).some(x => x.category === 'fuel' && x.odo > 0 && x.odo === odo)) { er.textContent = t('exp_dup_odo'); er.hidden = false; return; }
       S.expenses = S.expenses || [];
-      S.expenses.push({ id: 'e' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), date, category: cat.value, amount: amt, litres: cat.value === 'fuel' ? lit : 0, odo: cat.value === 'fuel' ? odo : 0, note: $('#ex-note', b).value.trim().slice(0, 80) });
+      S.expenses.push({ id: 'e' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), date, category: cat.value, amount: amt, litres: cat.value === 'fuel' ? lit : 0, odo: cat.value === 'fuel' || cat.value === 'service' ? odo : 0, note: $('#ex-note', b).value.trim().slice(0, 80) });
       recompute(); scheduleSync(); toast(t('exp_saved')); rerender(); renderSheet();
     };
     $$('[data-del]', b).forEach(x => x.onclick = () => { S.expenses = S.expenses.filter(e => e.id !== x.dataset.del); recompute(); scheduleSync(); rerender(); renderSheet(); });
@@ -1177,7 +1250,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     let h; try { h = await api('GET', 'api/me/history'); } catch (e) { b.innerHTML = `<div class="status err">${esc(t('au_e_net'))}</div>`; return; }
     if (S.sheet !== 'history') return;
     const st = h.stats, fdate = ts => new Date(ts * 1000).toLocaleString(LOC[S.lang], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-    const evName = (k, d) => ({ register: t('ev_register'), login: t('ev_login'), export: t('ev_export'), saved: t('ev_saved') }[k] || k) + (d && k === 'saved' ? ': ' + d : '');
+    const evName = (k, d) => ({ register: t('ev_register'), login: t('ev_login'), export: t('ev_export'), saved: t('ev_saved'), recovered: t('ev_recovered'), recovery_code: t('ev_recovery_code'), logout_others: t('ev_logout_others') }[k] || k) + (d && k === 'saved' ? ': ' + d : '');
     const sec = (title, rows) => `<section class="card" style="margin-top:12px"><h3 class="h3">${title}</h3>${rows.length ? `<div class="hist">${rows.join('')}</div>` : `<p class="muted">${t('hist_empty')}</p>`}</section>`;
     b.innerHTML = `<div class="stats"><div><div class="k">${t('hist_days')}</div><div class="v num">${st.days}</div></div><div><div class="k">${t('orders_n')}</div><div class="v num">${st.orders}</div></div><div><div class="k">${t('hist_gross')}</div><div class="v num">${inr(st.gross)}</div></div><div><div class="k">km</div><div class="v num">${Math.round(st.km)}</div></div></div>
       <p class="note" style="margin-top:6px">${st.first ? esc(dLabel(st.first, { day: 'numeric', month: 'short', year: 'numeric' })) + ' – ' + esc(dLabel(st.last, { day: 'numeric', month: 'short', year: 'numeric' })) : ''}</p>
@@ -1189,6 +1262,14 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
       ${sec(t('hist_activity'), h.events.slice(0, 12).map(e => `<div class="hrow"><span>${esc(evName(e.kind, e.detail))}</span><small>${esc(fdate(e.ts))}</small></div>`))}`;
   }
 
+  function accuracyAdminHTML(j) {
+    const rd2 = j.accuracy || {}, min = 100, rows = ['ai', 'ocr'].filter(k => rd2[k]).map(k => {
+      const a = rd2[k];
+      return a.ready ? `<p>${esc(t('adm_acc_row', { reader: t('adm_r_' + k), pct: (a.fieldAccuracy * 100).toFixed(1), ord: (a.orderAccuracy * 100).toFixed(1), n: a.orders, r: a.riders }))}</p>`
+        : `<p class="note">${esc(t('adm_r_' + k))}: ${esc(t('adm_acc_wait', { n: a.fields, min }))}</p>`;
+    });
+    return `<section class="card" style="margin-top:12px"><h3 class="h3">${t('adm_acc_h')}</h3>${rows.join('') || `<p class="muted">${t('hist_empty')}</p>`}</section>`;
+  }
   /* ---------- admin overview (only for riders listed in TRUEWAGE_ADMIN_PHONES) ---------- */
   async function adminSheet(b) {
     b.innerHTML = `<div class="reading"><div class="spin"></div><span>${t('reading')}</span></div>`;
@@ -1197,6 +1278,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     const T0 = j.totals, ago = ts => ts ? new Date(ts * 1000).toLocaleString(LOC[S.lang], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '–';
     b.innerHTML = `<div class="stats"><div><div class="k">${t('adm_riders')}</div><div class="v num">${T0.riders}</div></div><div><div class="k">${t('hist_days')}</div><div class="v num">${T0.days}</div></div><div><div class="k">${t('orders_n')}</div><div class="v num">${T0.orders}</div></div><div><div class="k">${t('adm_ai')}</div><div class="v num">${T0.aiImagesToday}</div></div></div>
       <p class="note" style="margin-top:8px">${esc(t('adm_note', { i: T0.imports, s: T0.statements, c: T0.contributions, a: T0.aiCached }))}</p>
+      ${accuracyAdminHTML(j)}
       <section class="card" style="margin-top:12px"><h3 class="h3">${t('adm_list')}</h3><div class="hist">${j.riders.map(r => `<div class="hrow"><span>${esc(r.name)}<small style="display:block">${esc(r.phone)} · ${esc(ago(r.created))}</small></span><small>${r.days} ${t('hist_days').toLowerCase()} · ${r.orders} ${t('orders_n')} · ${r.imports} ${t('hist_imports').toLowerCase()}<br>${esc(t('adm_last'))}: ${esc(ago(r.last_active))}</small></div>`).join('') || `<p class="muted">${t('hist_empty')}</p>`}</div></section>`;
   }
 
@@ -1297,6 +1379,21 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     sync();
   }
 
+  /** How much of what the reader found did the rider have to change? Counts only: no amounts or places leave the phone. A deleted order counts as 6 wrong values. */
+  const REVIEW_FIELDS = ['hour', 'zone', 'km', 'pay', 'incentive', 'deduction'];
+  const sameField = (f, a, b) => f === 'zone' ? String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase() : f === 'hour' ? Math.abs((+a || 0) - (+b || 0)) < 0.02 : Math.abs((+a || 0) - (+b || 0)) < 0.01;
+  function reviewStats(P) {
+    const st = { ordersRead: 0, ordersUntouched: 0, ordersRemoved: 0, ordersAdded: 0, fieldsRead: 0, fieldsChanged: 0 };
+    P.sessions.filter(s => s.include && s._orig).forEach(s => {
+      const kept = new Map(); s.orders.forEach(o => { if (o._i != null) kept.set(o._i, o); else st.ordersAdded++; });
+      s._orig.forEach((a, i) => {
+        st.ordersRead++; st.fieldsRead += REVIEW_FIELDS.length; const o = kept.get(i);
+        if (!o) { st.ordersRemoved++; st.fieldsChanged += REVIEW_FIELDS.length; return; }
+        const d = REVIEW_FIELDS.filter(f => !sameField(f, a[f], o[f])).length; st.fieldsChanged += d; if (!d) st.ordersUntouched++;
+      });
+    });
+    return st;
+  }
   function savePending() {
     const P = S.pending; if (!P) return;
     const inc = P.sessions.filter(s => s.include && s.orders.length);
@@ -1308,6 +1405,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     S.sessions = S.sessions.filter(s => s.source !== 'demo').concat(clean);
     S.hashes = (S.demo ? [] : S.hashes).concat(P.hashes || []);
     S.lastBatch = clean.map(s => s.id); S.reader = P.reader; S.demo = false; S.day = null; S.oc = null; resetWi();
+    if (S.user && !P.sample && (P.reader === 'ai' || P.reader === 'ocr')) { const rs = reviewStats(P); if (rs.ordersRead > 0) api('POST', 'api/me/review', Object.assign({ reader: P.reader }, rs)).catch(() => { /* statistics are optional */ }); }
     S.pending = null; ui.thumbs = null; ui.msg = null; ui.open = new Set(); recompute();
     const n = clean.reduce((a, s) => a + s.orders.length, 0);
     closeSheet(); setTab('home'); toast(t('imp_saved', { n }));
@@ -1341,7 +1439,8 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
   function stage(sessions, reader, hashes, extra) {
     const existing = S.sessions.filter(s => s.source !== 'demo');
     sessions.forEach(s => { s.dup = R.isDuplicateSession(s, existing); s.include = !s.dup; });
-    S.pending = { sessions, hashes, reader, unread: extra.unread || 0, dupImages: extra.dupImages || 0 };
+    sessions.forEach(s => { s._orig = s.orders.map((o, i) => { o._i = i; return { hour: o.hour, zone: o.zone, km: o.km, pay: o.pay, incentive: o.incentive, deduction: o.deduction }; }); });   // what the reader returned, kept to measure its accuracy
+    S.pending = { sessions, hashes, reader, unread: extra.unread || 0, dupImages: extra.dupImages || 0, sample: !!extra.sample };
     ui.open = new Set(); sessions.forEach((s, i) => { if (s.orders.some(o => R.validateOrder(o).length) || !s.orders.length) ui.open.add(i); });
     ui.msg = null; renderSheet();
   }
@@ -1382,7 +1481,7 @@ const SYNC_KEYS = ['sessions', 'profile', 'hashes', 'reader', 'lastBatch', 'shar
     } catch (e) { console.warn('sample read fallback', e.message); }
     if (!sessions) { sessions = picks.map(s => Object.assign({}, s, { orders: s.orders.slice(0, 13), source: 'sample' })); reader = 'demo'; }
     ui.busy = false;
-    stage(sessions, reader, hashes, { unread, dupImages: 0 });
+    stage(sessions, reader, hashes, { unread, dupImages: 0, sample: true });
   }
 
   async function loadDemo(city) {

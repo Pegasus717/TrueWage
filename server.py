@@ -86,7 +86,7 @@ RULES:
 
 _lock = threading.Lock()
 _hits = defaultdict(deque)
-LIMITS = {"extract": (20, 3600), "statement": (60, 3600), "contribute": (30, 3600), "ask": (60, 3600), "register": (60, 3600), "data": (400, 3600)}
+LIMITS = {"extract": (20, 3600), "statement": (60, 3600), "contribute": (30, 3600), "ask": (60, 3600), "register": (60, 3600), "data": (400, 3600), "recover": (30, 3600), "review": (200, 3600)}
 
 
 def rate_ok(bucket, ip):
@@ -586,8 +586,15 @@ class Handler(BaseHTTPRequestHandler):
             if not rate_ok("register", ip):
                 self._json(429, {"error": "too_many_requests"}); return True
             b = self._body(4096)
-            user, token = accounts.register(b.get("name"), b.get("phone"), b.get("password"), b.get("lang"))
-            self._json(200, {"user": accounts.public(user), "ai": accounts.ai_usage(user["id"])}, headers=self._cookie(token)); return True
+            user, token, code = accounts.register(b.get("name"), b.get("phone"), b.get("password"), b.get("lang"))
+            self._json(200, {"user": accounts.public(user), "ai": accounts.ai_usage(user["id"]), "recoveryCode": code}, headers=self._cookie(token)); return True
+        if method == "POST" and path == "/api/auth/recover":
+            if not rate_ok("recover", ip):
+                self._json(429, {"error": "too_many_requests"}); return True
+            b = self._body(4096)
+            user, token, code = accounts.recover(b.get("phone"), b.get("code"), b.get("password"), ip)
+            data, version = accounts.get_data(user["id"])
+            self._json(200, {"user": accounts.public(user), "data": data, "version": version, "ai": accounts.ai_usage(user["id"]), "recoveryCode": code}, headers=self._cookie(token)); return True
         if method == "POST" and path == "/api/auth/login":
             b = self._body(4096)
             user, token = accounts.login(b.get("phone"), b.get("password"), ip)
@@ -614,6 +621,18 @@ class Handler(BaseHTTPRequestHandler):
             if method == "POST" and path == "/api/me/password":
                 b = self._body(4096)
                 accounts.change_password(user["id"], b.get("old"), b.get("new"), self._token())
+                self._json(200, {"ok": True}); return True
+            if method == "POST" and path == "/api/me/recovery":
+                b = self._body(4096)
+                self._json(200, {"recoveryCode": accounts.regenerate_recovery(user["id"], b.get("password"))}); return True
+            if method == "POST" and path == "/api/me/logout-others":
+                accounts.logout_others(user["id"], self._token())
+                self._json(200, {"ok": True}); return True
+            if method == "POST" and path == "/api/me/review":
+                if not rate_ok("review", "u%d" % user["id"]):
+                    self._json(429, {"error": "too_many_requests"}); return True
+                b = self._body(2048)
+                accounts.log_review(user["id"], b.get("reader"), b.get("ordersRead"), b.get("ordersUntouched"), b.get("ordersRemoved"), b.get("ordersAdded"), b.get("fieldsRead"), b.get("fieldsChanged"))
                 self._json(200, {"ok": True}); return True
             if method == "DELETE" and path == "/api/me":
                 b = self._body(4096)
@@ -663,6 +682,8 @@ class Handler(BaseHTTPRequestHandler):
                               headers={"Content-Disposition": 'attachment; filename="truewage-history.csv"'})
         if path == "/api/city":
             return self._json(200, city_summary())
+        if path == "/api/accuracy":
+            return self._json(200, {"minFields": accounts.MIN_FIELDS_FOR_ACCURACY, "readers": accounts.accuracy()})
         if path.startswith("/api/statement/"):
             rid = path.rsplit("/", 1)[-1]
             rec = registry_get(rid) if re.fullmatch(r"TW-[0-9A-F]{12}", rid) else None

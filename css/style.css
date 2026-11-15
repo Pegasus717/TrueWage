@@ -403,6 +403,7 @@ html.big{font-size:19px}html.big body{font-size:19px}
   .cols.lead .o-plan{order:8}
   .cols.lead .o-now{order:9}
   .cols.lead .shift{order:10}
+  .cols.lead .o-svc{order:10}
   .cols.lead .o-week{order:11}
   .cols.lead .tour{order:12}
   .cols.lead .assume{order:13}
@@ -412,3 +413,13 @@ html.big{font-size:19px}html.big body{font-size:19px}
   body{background:#fff;padding:0}.bar,.tabbar,.foot,.toast,.noprint,.sheet,.fab{display:none!important}
   .view{display:none!important}#view-proof{display:block!important}.paper{box-shadow:none;border:0;margin:0;max-width:none}
 }
+
+/* v2: recovery code, service reminder */
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.06em}
+.rc-code{margin-top:12px;padding:18px 14px;border-radius:20px;background:var(--sun-l);border:2px dashed var(--sun);color:var(--ink);font-size:clamp(17px,5.2vw,24px);font-weight:800;text-align:center;word-break:break-all;user-select:all}
+.rc-ack{display:flex;gap:12px;align-items:center;margin:14px 0 12px;font-weight:700;cursor:pointer}.rc-ack input{width:22px;height:22px;flex:none;accent-color:var(--brand)}
+#rv-code{text-transform:uppercase}
+.svc-line{font-size:18px;font-weight:700}
+.svcbar{height:10px;border-radius:999px;background:var(--soft);overflow:hidden;margin:10px 0 6px}.svcbar i{display:block;height:100%;border-radius:999px;background:var(--brand)}
+.svc-soon .svcbar i{background:var(--sun)}.svc-soon .svc-line{color:var(--warn)}
+.svc-over .svcbar i{background:var(--lost)}.svc-over .svc-line{color:var(--lost)}

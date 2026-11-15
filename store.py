@@ -34,6 +34,7 @@ TABLES = [
     ("imports", "CREATE TABLE IF NOT EXISTS imports(id %ID%, user_id %BIG% NOT NULL REFERENCES users(id) ON DELETE CASCADE, ts %BIG% NOT NULL, reader TEXT, images %BIG%, cached %BIG%, sent %BIG%, sessions %BIG%, orders %BIG%, models TEXT)"),
     ("statements", "CREATE TABLE IF NOT EXISTS statements(user_id %BIG% NOT NULL REFERENCES users(id) ON DELETE CASCADE, sid TEXT NOT NULL, ts %BIG% NOT NULL, period_from TEXT, period_to TEXT, monthly_take_home %REAL%, PRIMARY KEY(user_id, sid))"),
     ("events", "CREATE TABLE IF NOT EXISTS events(id %ID%, user_id %BIG% NOT NULL REFERENCES users(id) ON DELETE CASCADE, ts %BIG% NOT NULL, kind TEXT NOT NULL, detail TEXT)"),
+    ("review_stats", "CREATE TABLE IF NOT EXISTS review_stats(id %ID%, user_id %BIG% NOT NULL REFERENCES users(id) ON DELETE CASCADE, ts %BIG% NOT NULL, reader TEXT NOT NULL, orders_read %BIG% NOT NULL, orders_untouched %BIG% NOT NULL, orders_removed %BIG% NOT NULL, orders_added %BIG% NOT NULL, fields_read %BIG% NOT NULL, fields_changed %BIG% NOT NULL)"),
     ("ai_usage", "CREATE TABLE IF NOT EXISTS ai_usage(user_id %BIG% NOT NULL REFERENCES users(id) ON DELETE CASCADE, day TEXT NOT NULL, images %BIG% NOT NULL DEFAULT 0, asks %BIG% NOT NULL DEFAULT 0, PRIMARY KEY(user_id, day))"),
     # server-wide stores (previously JSON files)
     ("registry", "CREATE TABLE IF NOT EXISTS registry(id TEXT PRIMARY KEY, hash TEXT NOT NULL, data TEXT, created TEXT NOT NULL)"),
@@ -54,6 +55,7 @@ INDEXES = [
     "CREATE INDEX IF NOT EXISTS ev_user ON events(user_id, ts)",
     "CREATE INDEX IF NOT EXISTS imp_user ON imports(user_id, id)",
     "CREATE INDEX IF NOT EXISTS cache_ts ON extract_cache(ts)",
+    "CREATE INDEX IF NOT EXISTS rs_reader ON review_stats(reader)",
 ]
 
 
@@ -105,6 +107,7 @@ def init(data_dir):
                     c.execute("DO $$ BEGIN DROP SCHEMA %s; EXCEPTION WHEN others THEN NULL; END $$" % OLD_SCHEMA)
         for _, sql in TABLES:
             c.execute(_ddl(sql))
+        _add_column(c, "users", "recovery", "TEXT")           # v2: hash of the rider's recovery code (older databases get the column here)
         for sql in INDEXES:
             c.execute(sql)
         if _kind == "pg":
@@ -113,6 +116,14 @@ def init(data_dir):
                 c.execute("DO $$ BEGIN REVOKE ALL ON TABLE %s.%s FROM anon, authenticated; EXCEPTION WHEN undefined_object THEN NULL; END $$" % (SCHEMA_NAME, name))
         c.execute("DELETE FROM sessions WHERE expires < ?", (int(time.time()),))
     return _kind
+
+
+def _add_column(c, table, column, ddl_type):
+    """Add a column to an existing table when it is missing (idempotent, works on both backends)."""
+    if _kind == "pg":
+        c.execute("ALTER TABLE %s ADD COLUMN IF NOT EXISTS %s %s" % (table, column, ddl_type))
+    elif column not in [r["name"] for r in c.execute("PRAGMA table_info(%s)" % table).fetchall()]:
+        c.execute("ALTER TABLE %s ADD COLUMN %s %s" % (table, column, ddl_type))
 
 
 # ---------------- connections ----------------

@@ -224,6 +224,63 @@
   Object.assign(L.hi, {"td_streak": "लगातार {n} दिन", "td_best": "सबसे अच्छा दिन {v}", "td_share": "आज शेयर करें", "td_share_txt": "TrueWage {date}: मैंने {kept} बचाए (ऐप ने {app} दिखाया)। असली कमाई: {real} प्रति घंटा।", "oc_scan": "ऑर्डर ऑफ़र स्कैन करें", "oc_scanning": "ऑफ़र पढ़ रहे हैं…", "oc_scan_none": "उस स्क्रीनशॉट में ऑर्डर ऑफ़र नहीं मिला।", "oc_scan_hint": "ऑफ़र का स्क्रीनशॉट लें, यहाँ दबाएँ, चुनें: सेकंड में फ़ैसला।", "ck_h": "3 कदम में शुरू करें", "ck_1": "अपने पहले कमाई स्क्रीनशॉट जोड़ें", "ck_2": "ईंधन भराई दर्ज करें (असली पेट्रोल खर्च नापता है)", "ck_3": "शिफ्ट शुरू करें (घंटे और दूरी नापता है)", "ck_go": "करें"});
   Object.assign(L.te, {"td_streak": "వరుసగా {n} రోజులు", "td_best": "ఉత్తమ రోజు {v}", "td_share": "ఈరోజు షేర్ చేయండి", "td_share_txt": "TrueWage {date}: నేను {kept} మిగుల్చుకున్నాను (యాప్‌లు {app} చూపాయి). నిజమైన సంపాదన: గంటకు {real}.", "oc_scan": "ఆర్డర్ ఆఫర్ స్కాన్ చేయండి", "oc_scanning": "ఆఫర్ చదువుతున్నాం…", "oc_scan_none": "ఆ స్క్రీన్‌షాట్‌లో ఆర్డర్ ఆఫర్ కనిపించలేదు.", "oc_scan_hint": "ఆఫర్ స్క్రీన్‌షాట్ తీసి, ఇక్కడ నొక్కి, ఎంచుకోండి: సెకన్లలో నిర్ణయం.", "ck_h": "3 దశల్లో సిద్ధం అవ్వండి", "ck_1": "మీ మొదటి సంపాదన స్క్రీన్‌షాట్లు జోడించండి", "ck_2": "ఇంధనం నింపినది నమోదు చేయండి (అసలు పెట్రోల్ ఖర్చు కొలుస్తుంది)", "ck_3": "షిఫ్ట్ ప్రారంభించండి (గంటలు, దూరం కొలుస్తుంది)", "ck_go": "చేయండి"});
   Object.assign(L.ta, {"td_streak": "தொடர்ந்து {n} நாட்கள்", "td_best": "சிறந்த நாள் {v}", "td_share": "இன்றைய நிலையைப் பகிர்", "td_share_txt": "TrueWage {date}: நான் {kept} மிச்சப்படுத்தினேன் (ஆப்கள் {app} காட்டின). உண்மையான வருமானம்: மணிக்கு {real}.", "oc_scan": "ஆர்டர் ஆஃபரை ஸ்கேன் செய்", "oc_scanning": "ஆஃபரைப் படிக்கிறோம்…", "oc_scan_none": "அந்த ஸ்கிரீன்ஷாட்டில் ஆர்டர் ஆஃபர் இல்லை.", "oc_scan_hint": "ஆஃபரின் ஸ்கிரீன்ஷாட் எடுத்து, இங்கே தட்டி, தேர்ந்தெடுங்கள்: வினாடிகளில் முடிவு.", "ck_h": "3 படிகளில் தயாராகுங்கள்", "ck_1": "முதல் வருமான ஸ்கிரீன்ஷாட்களைச் சேர்க்கவும்", "ck_2": "எரிபொருள் நிரப்பலைப் பதிவு செய்யுங்கள் (உண்மையான பெட்ரோல் செலவை அளக்கும்)", "ck_3": "ஷிப்ட்டைத் தொடங்குங்கள் (மணி, தூரத்தை அளக்கும்)", "ck_go": "செய்"});
+  /* --- v2 strings: recovery code, other devices, measured reading accuracy, service reminder --- */
+  Object.assign(L.en, {
+    "rc_h": "Your recovery code", "rc_p": "If you forget your password, this code is the only way back into your account. Write it on paper or save it somewhere safe. It is shown only once.",
+    "rc_copy": "Copy code", "rc_copied": "Copied", "rc_saved_chk": "I have saved my code", "rc_continue": "Continue", "rc_warn_never": "Do not share it. Anyone with this code and your number can reset your password.",
+    "rc_make": "Create a recovery code", "rc_make_p": "Your account has no recovery code yet. Make one so a forgotten password does not lock you out.", "rc_new": "New recovery code", "rc_new_p": "Your old code no longer works. Save this new one.", "rc_regen": "Make a new recovery code", "rc_nudge": "Create a recovery code so you can reset a forgotten password.",
+    "au_forgot": "Forgot password?", "au_recover_h": "Reset your password", "au_recover_p": "Enter your mobile number, the recovery code you saved at sign-up and a new password.", "au_code": "Recovery code", "au_recover_go": "Reset password", "au_back": "Back to log in",
+    "au_e_bad_recovery": "That number and code do not match.", "au_logout_others": "Log out other devices", "au_others_done": "All other devices were logged out.",
+    "au_privacy": "We store your name, mobile number (to log you in) and your earnings data. Passwords are stored scrambled and cannot be read. You get a recovery code at sign-up to reset a forgotten password.",
+    "ev_recovered": "Password reset", "ev_recovery_code": "New recovery code", "ev_logout_others": "Other devices logged out",
+    "adm_acc_h": "Reading accuracy (from rider corrections)", "adm_acc_row": "{reader}: {pct}% of values needed no change · {ord}% of orders untouched · {n} orders from {r} riders",
+    "adm_acc_wait": "Not enough checked values yet ({n} of {min}). The figure appears once riders have checked {min}.", "adm_r_ai": "AI reader", "adm_r_ocr": "On-device OCR",
+    "sv_h": "Service reminder", "sv_due": "Next service in about {km} km", "sv_soon": "Service due soon: about {km} km left", "sv_over": "Service overdue by about {km} km",
+    "sv_none": "Log your last service with its odometer reading to get a reminder.", "sv_every": "Service every (km)", "sv_log": "Log a service", "sv_note": "Based on your latest odometer reading ({odo} km) and your last service at {last} km.",
+    "exp_c_service": "Service (oil, tyres, chain)"
+  });
+  Object.assign(L.hi, {
+    "rc_h": "आपका रिकवरी कोड", "rc_p": "पासवर्ड भूल जाएँ तो खाते में वापस आने का यही एकमात्र तरीका है। इसे कागज़ पर लिख लें या सुरक्षित जगह रखें। यह सिर्फ़ एक बार दिखता है।",
+    "rc_copy": "कोड कॉपी करें", "rc_copied": "कॉपी हुआ", "rc_saved_chk": "मैंने कोड सुरक्षित रख लिया", "rc_continue": "आगे बढ़ें", "rc_warn_never": "इसे किसी को न दें। कोड और आपका नंबर जिसके पास हो, वह आपका पासवर्ड बदल सकता है।",
+    "rc_make": "रिकवरी कोड बनाएँ", "rc_make_p": "आपके खाते में अभी रिकवरी कोड नहीं है। बनाएँ, ताकि पासवर्ड भूलने पर खाता बंद न हो।", "rc_new": "नया रिकवरी कोड", "rc_new_p": "पुराना कोड अब काम नहीं करेगा। यह नया कोड सुरक्षित रखें।", "rc_regen": "नया रिकवरी कोड बनाएँ", "rc_nudge": "भूला पासवर्ड रीसेट करने के लिए रिकवरी कोड बनाएँ।",
+    "au_forgot": "पासवर्ड भूल गए?", "au_recover_h": "पासवर्ड रीसेट करें", "au_recover_p": "अपना मोबाइल नंबर, खाता बनाते समय मिला रिकवरी कोड और नया पासवर्ड डालें।", "au_code": "रिकवरी कोड", "au_recover_go": "पासवर्ड रीसेट करें", "au_back": "लॉग इन पर वापस",
+    "au_e_bad_recovery": "यह नंबर और कोड मेल नहीं खाते।", "au_logout_others": "बाकी डिवाइस से लॉग आउट करें", "au_others_done": "बाकी सभी डिवाइस लॉग आउट हो गए।",
+    "au_privacy": "हम आपका नाम, मोबाइल नंबर (लॉगिन के लिए) और कमाई का डेटा सेव करते हैं। पासवर्ड सुरक्षित रूप से सेव होता है, पढ़ा नहीं जा सकता। पासवर्ड भूलने पर रीसेट के लिए खाता बनाते समय आपको एक रिकवरी कोड मिलता है।",
+    "ev_recovered": "पासवर्ड रीसेट", "ev_recovery_code": "नया रिकवरी कोड", "ev_logout_others": "बाकी डिवाइस लॉग आउट",
+    "adm_acc_h": "पढ़ने की सटीकता (राइडर के सुधारों से)", "adm_acc_row": "{reader}: {pct}% मान बिना बदलाव सही · {ord}% ऑर्डर बिना बदलाव · {r} राइडर के {n} ऑर्डर",
+    "adm_acc_wait": "अभी जाँचे गए मान कम हैं ({n}/{min})। {min} मान जाँचे जाने पर आँकड़ा दिखेगा।", "adm_r_ai": "AI रीडर", "adm_r_ocr": "ऑन-डिवाइस OCR",
+    "sv_h": "सर्विस रिमाइंडर", "sv_due": "अगली सर्विस लगभग {km} किमी बाद", "sv_soon": "सर्विस जल्द: लगभग {km} किमी बचे", "sv_over": "सर्विस लगभग {km} किमी से लेट",
+    "sv_none": "रिमाइंडर के लिए अपनी पिछली सर्विस ओडोमीटर रीडिंग के साथ दर्ज करें।", "sv_every": "हर कितने किमी पर सर्विस", "sv_log": "सर्विस दर्ज करें", "sv_note": "आपकी ताज़ा ओडोमीटर रीडिंग ({odo} किमी) और {last} किमी पर पिछली सर्विस के आधार पर।",
+    "exp_c_service": "सर्विस (तेल, टायर, चेन)"
+  });
+  Object.assign(L.te, {
+    "rc_h": "మీ రికవరీ కోడ్", "rc_p": "పాస్‌వర్డ్ మర్చిపోతే ఖాతాలోకి తిరిగి రావడానికి ఇదే మార్గం. దీన్ని కాగితంపై రాసుకోండి లేదా భద్రంగా ఉంచండి. ఇది ఒక్కసారే కనిపిస్తుంది.",
+    "rc_copy": "కోడ్ కాపీ చేయండి", "rc_copied": "కాపీ అయింది", "rc_saved_chk": "నా కోడ్‌ను భద్రపరచుకున్నాను", "rc_continue": "కొనసాగండి", "rc_warn_never": "దీన్ని ఎవరికీ ఇవ్వకండి. ఈ కోడ్, మీ నంబర్ ఉన్నవారు మీ పాస్‌వర్డ్ మార్చగలరు.",
+    "rc_make": "రికవరీ కోడ్ సృష్టించండి", "rc_make_p": "మీ ఖాతాకు ఇంకా రికవరీ కోడ్ లేదు. సృష్టించండి, పాస్‌వర్డ్ మర్చిపోయినా ఖాతా లాక్ కాదు.", "rc_new": "కొత్త రికవరీ కోడ్", "rc_new_p": "పాత కోడ్ ఇక పనిచేయదు. ఈ కొత్త కోడ్‌ను భద్రపరచండి.", "rc_regen": "కొత్త రికవరీ కోడ్ సృష్టించండి", "rc_nudge": "మర్చిపోయిన పాస్‌వర్డ్ రీసెట్ చేయడానికి రికవరీ కోడ్ సృష్టించండి.",
+    "au_forgot": "పాస్‌వర్డ్ మర్చిపోయారా?", "au_recover_h": "పాస్‌వర్డ్ రీసెట్ చేయండి", "au_recover_p": "మీ మొబైల్ నంబర్, ఖాతా తెరిచినప్పుడు వచ్చిన రికవరీ కోడ్, కొత్త పాస్‌వర్డ్ నమోదు చేయండి.", "au_code": "రికవరీ కోడ్", "au_recover_go": "పాస్‌వర్డ్ రీసెట్", "au_back": "లాగిన్‌కి తిరిగి",
+    "au_e_bad_recovery": "ఈ నంబర్, కోడ్ సరిపోలడం లేదు.", "au_logout_others": "ఇతర పరికరాల నుండి లాగ్ అవుట్", "au_others_done": "ఇతర పరికరాలన్నీ లాగ్ అవుట్ అయ్యాయి.",
+    "au_privacy": "మేము మీ పేరు, మొబైల్ నంబర్ (లాగిన్ కోసం), సంపాదన డేటా నిల్వ చేస్తాము. పాస్‌వర్డ్ దాచిన రూపంలో సేవ్ అవుతుంది, చదవలేం. పాస్‌వర్డ్ మర్చిపోతే రీసెట్ చేయడానికి ఖాతా తెరిచినప్పుడు రికవరీ కోడ్ ఇస్తాం.",
+    "ev_recovered": "పాస్‌వర్డ్ రీసెట్", "ev_recovery_code": "కొత్త రికవరీ కోడ్", "ev_logout_others": "ఇతర పరికరాలు లాగ్ అవుట్",
+    "adm_acc_h": "చదవడం ఖచ్చితత్వం (రైడర్ల సవరణల నుండి)", "adm_acc_row": "{reader}: {pct}% విలువలు మార్పు లేకుండా సరైనవి · {ord}% ఆర్డర్లు మార్పు లేకుండా · {r} రైడర్ల {n} ఆర్డర్లు",
+    "adm_acc_wait": "ఇంకా తగినన్ని విలువలు తనిఖీ కాలేదు ({n}/{min}). {min} విలువలు తనిఖీ అయ్యాక సంఖ్య కనిపిస్తుంది.", "adm_r_ai": "AI రీడర్", "adm_r_ocr": "ఆన్-డివైస్ OCR",
+    "sv_h": "సర్వీస్ రిమైండర్", "sv_due": "తదుపరి సర్వీస్ సుమారు {km} కి.మీ. తర్వాత", "sv_soon": "సర్వీస్ త్వరలో: సుమారు {km} కి.మీ. మిగిలింది", "sv_over": "సర్వీస్ సుమారు {km} కి.మీ. ఆలస్యం",
+    "sv_none": "రిమైండర్ కోసం మీ చివరి సర్వీస్‌ను ఓడోమీటర్ రీడింగ్‌తో నమోదు చేయండి.", "sv_every": "ప్రతి ఎన్ని కి.మీ.కి సర్వీస్", "sv_log": "సర్వీస్ నమోదు చేయండి", "sv_note": "మీ తాజా ఓడోమీటర్ రీడింగ్ ({odo} కి.మీ.), {last} కి.మీ. వద్ద చివరి సర్వీస్ ఆధారంగా.",
+    "exp_c_service": "సర్వీస్ (ఆయిల్, టైర్లు, చైన్)"
+  });
+  Object.assign(L.ta, {
+    "rc_h": "உங்கள் மீட்பு குறியீடு", "rc_p": "கடவுச்சொல்லை மறந்தால் கணக்கிற்குள் திரும்ப இதுவே ஒரே வழி. காகிதத்தில் எழுதி அல்லது பாதுகாப்பாக வைத்துக்கொள்ளுங்கள். இது ஒருமுறை மட்டுமே காட்டப்படும்.",
+    "rc_copy": "குறியீட்டை நகலெடு", "rc_copied": "நகலெடுக்கப்பட்டது", "rc_saved_chk": "என் குறியீட்டைச் சேமித்துவிட்டேன்", "rc_continue": "தொடரவும்", "rc_warn_never": "இதை யாரிடமும் பகிராதீர்கள். இந்தக் குறியீடும் உங்கள் எண்ணும் உள்ளவர் உங்கள் கடவுச்சொல்லை மாற்ற முடியும்.",
+    "rc_make": "மீட்பு குறியீட்டை உருவாக்கு", "rc_make_p": "உங்கள் கணக்கில் இன்னும் மீட்பு குறியீடு இல்லை. உருவாக்குங்கள், கடவுச்சொல்லை மறந்தாலும் கணக்கு பூட்டப்படாது.", "rc_new": "புதிய மீட்பு குறியீடு", "rc_new_p": "பழைய குறியீடு இனி வேலை செய்யாது. இந்தப் புதியதைச் சேமித்து வையுங்கள்.", "rc_regen": "புதிய மீட்பு குறியீட்டை உருவாக்கு", "rc_nudge": "மறந்த கடவுச்சொல்லை மீட்டமைக்க மீட்பு குறியீட்டை உருவாக்குங்கள்.",
+    "au_forgot": "கடவுச்சொல்லை மறந்தீர்களா?", "au_recover_h": "கடவுச்சொல்லை மீட்டமை", "au_recover_p": "உங்கள் மொபைல் எண், கணக்கு தொடங்கும்போது கிடைத்த மீட்பு குறியீடு, புதிய கடவுச்சொல் ஆகியவற்றை உள்ளிடுங்கள்.", "au_code": "மீட்பு குறியீடு", "au_recover_go": "கடவுச்சொல்லை மீட்டமை", "au_back": "உள்நுழைவுக்குத் திரும்பு",
+    "au_e_bad_recovery": "இந்த எண்ணும் குறியீடும் பொருந்தவில்லை.", "au_logout_others": "மற்ற சாதனங்களில் இருந்து வெளியேறு", "au_others_done": "மற்ற எல்லா சாதனங்களும் வெளியேற்றப்பட்டன.",
+    "au_privacy": "உங்கள் பெயர், மொபைல் எண் (உள்நுழைவுக்கு), வருமான தரவை சேமிக்கிறோம். கடவுச்சொல் மறைக்கப்பட்டு சேமிக்கப்படும், படிக்க இயலாது. கடவுச்சொல்லை மறந்தால் மீட்டமைக்க, கணக்கு தொடங்கும்போது மீட்பு குறியீடு தருகிறோம்.",
+    "ev_recovered": "கடவுச்சொல் மீட்டமைப்பு", "ev_recovery_code": "புதிய மீட்பு குறியீடு", "ev_logout_others": "மற்ற சாதனங்கள் வெளியேற்றம்",
+    "adm_acc_h": "படிக்கும் துல்லியம் (ரைடர் திருத்தங்களில் இருந்து)", "adm_acc_row": "{reader}: {pct}% மதிப்புகள் மாற்றமின்றி சரி · {ord}% ஆர்டர்கள் மாற்றமின்றி · {r} ரைடர்களின் {n} ஆர்டர்கள்",
+    "adm_acc_wait": "போதுமான மதிப்புகள் இன்னும் சரிபார்க்கப்படவில்லை ({n}/{min}). {min} மதிப்புகள் சரிபார்த்ததும் எண் தெரியும்.", "adm_r_ai": "AI ரீடர்", "adm_r_ocr": "சாதன OCR",
+    "sv_h": "சர்வீஸ் நினைவூட்டல்", "sv_due": "அடுத்த சர்வீஸ் சுமார் {km} கி.மீ. கழித்து", "sv_soon": "சர்வீஸ் விரைவில்: சுமார் {km} கி.மீ. மீதம்", "sv_over": "சர்வீஸ் சுமார் {km} கி.மீ. தாமதம்",
+    "sv_none": "நினைவூட்டல் பெற, கடைசி சர்வீஸை ஓடோமீட்டர் அளவுடன் பதிவு செய்யுங்கள்.", "sv_every": "ஒவ்வொரு எத்தனை கி.மீ.க்கும் சர்வீஸ்", "sv_log": "சர்வீஸ் பதிவு செய்", "sv_note": "உங்கள் சமீபத்திய ஓடோமீட்டர் அளவு ({odo} கி.மீ.), {last} கி.மீ.-ல் கடைசி சர்வீஸ் அடிப்படையில்.",
+    "exp_c_service": "சர்வீஸ் (ஆயில், டயர், செயின்)"
+  });
   let lang = 'en';
   function t(k, vars) {
     let s = (L[lang] && L[lang][k]) || L.en[k] || k;

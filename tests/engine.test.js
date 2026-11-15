@@ -385,3 +385,14 @@ console.log('v7 OK  plan', plan.segments.map(g => g.start + '-' + g.end + ' ' + 
   const sumN = rep.weekdayDaypart.reduce((a, c) => a + c.n, 0); assert.strictEqual(sumN, rep.total.n, 'every order lands in exactly one weekday/daypart cell');
   console.log('v17 OK  best slot', rep.bestSlot.wd, rep.bestSlot.daypart, Math.round(rep.bestSlot.perHr));
 }
+
+// ---- v18: a logged service is a real repair-type cost (replaces the per-km estimate, never doubled) ----
+{
+  const prof = Object.assign(TW.defaultProfile('petrol'), D.DEMO_PROFILE);
+  const base = TW.analyze(sessions, prof), dts = base.dates;
+  const svc = TW.analyze(sessions, Object.assign({}, prof, { expenses: [{ id: 's', date: dts[2], category: 'service', amount: 900, odo: 12000 }] }));
+  assert.ok(Math.abs(svc.total.maint - 900) < 1e-6, 'maint is exactly the logged service: ' + svc.total.maint);
+  assert.ok(svc.extras.hasRepair && svc.extras.n === 1);
+  assert.ok(Math.abs(svc.total.gross - svc.total.fuel - svc.total.maint - svc.total.data - svc.total.fixed - svc.total.net) < 1e-6, 'costs still balance to the paisa');
+  console.log('v18 OK  service logged as a repair-type cost');
+}
