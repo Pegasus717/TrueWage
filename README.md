@@ -315,6 +315,22 @@ docs/            Screenshots and architecture notes
 
 ---
 
+## Credits
+
+TrueWage was built during HackGlobal 2026. It uses these open-source projects and services:
+
+| Used for | Project |
+|---|---|
+| Screenshot reading and Ask | [Claude API](https://www.anthropic.com/api) by Anthropic |
+| On-device OCR | [Tesseract.js](https://github.com/naptha/tesseract.js) (Apache-2.0) |
+| QR codes on the statement | [qrcodejs](https://github.com/davidshimjs/qrcodejs) (MIT) |
+| Fonts | [Plus Jakarta Sans](https://fonts.google.com/specimen/Plus+Jakarta+Sans) and the Noto Sans scripts, from Google Fonts (SIL Open Font License) |
+| Database | [Supabase](https://supabase.com) PostgreSQL with the [psycopg](https://www.psycopg.org) driver |
+| Hosting and HTTPS | [Vultr](https://www.vultr.com), [Render](https://render.com), [Docker](https://www.docker.com) and [Caddy](https://caddyserver.com) |
+| Diagrams | [Mermaid](https://mermaid.js.org), rendered by GitHub |
+
+---
+
 ## Team
 
 | Name | GitHub |
