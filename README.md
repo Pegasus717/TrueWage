@@ -4,8 +4,8 @@
 
 [![CI](https://github.com/Pegasus717/TrueWage/actions/workflows/ci.yml/badge.svg)](https://github.com/Pegasus717/TrueWage/actions/workflows/ci.yml)
 
-**Live demo on Vultr:** https://65-20-93-226.sslip.io/ (always on)
-**Main site with AI reading and the hosted database:** https://truewage-0p3b.onrender.com/ (free hosting, so the first load after a quiet period can take up to a minute)
+**Live demo, hosted on Vultr:** https://65-20-93-226.sslip.io/ (always on, on-device screenshot reader)
+**Second deployment on Render:** https://truewage-0p3b.onrender.com/ (with the Claude screenshot reader and the Supabase database; free hosting, so the first load after a quiet period can take up to a minute)
 
 TrueWage helps delivery partners and cab drivers find out what they really earn. The rider uploads earnings screenshots from apps such as Swiggy, Zomato, Rapido or Ola. TrueWage reads them with AI, subtracts petrol, repairs, mobile data, vehicle EMI and waiting time, and shows the amount the rider actually kept and their real pay per hour.
 
@@ -133,7 +133,7 @@ The full schema is in [deploy/supabase_schema.sql](deploy/supabase_schema.sql). 
 | AI | Claude API (vision and text) | Reading screenshots and answering questions |
 | Database | Supabase PostgreSQL | Accounts, rider data, history, analytics, cache |
 | Database | SQLite | Local development and tests |
-| Hosting | Vultr Cloud Compute, Render | Vultr runs the Docker deployment; Render runs the main site with the hosted database |
+| Hosting | Vultr Cloud Compute, Render | The live demo runs in Docker on a Vultr server; a second copy runs on Render with the hosted database |
 | Containers | Docker, Docker Compose, Caddy | Running on any server with automatic HTTPS |
 | Quality | Node.js and Python `unittest`, GitHub Actions | Tests and continuous integration |
 
@@ -259,7 +259,7 @@ The server tests run against a local mock of the Claude API, so they never spend
 
 | Option | Details |
 |---|---|
-| Render (live site) | `render.yaml` and [deploy/RENDER.md](deploy/RENDER.md) |
+| Render (second deployment) | `render.yaml` and [deploy/RENDER.md](deploy/RENDER.md) |
 | Vultr Cloud Compute (live) | A Mumbai server (1 vCPU, 2 GB, Ubuntu 24.04) set up by the first-boot script [deploy/vultr-startup.sh](deploy/vultr-startup.sh): it installs Docker, pulls this repository and runs `docker-compose.yml` with Caddy, which gets an HTTPS certificate for a free `<ip>.sslip.io` name. The same files run on any Docker host; see [deploy/VULTR.md](deploy/VULTR.md). This copy uses a local SQLite database and the on-device screenshot reader, because no database URL or AI key is set on it. |
 | Database | Supabase PostgreSQL, see [deploy/SUPABASE.md](deploy/SUPABASE.md) |
 | Backups and uptime | `.github/workflows/backup.yml` (daily encrypted dump) and `uptime.yml` (readiness check every 10 minutes), see [docs/architecture.md](docs/architecture.md#backups-migrations-and-monitoring) |
@@ -285,6 +285,8 @@ The server tests run against a local mock of the Claude API, so they never spend
 - Login uses a phone number and password with no SMS or e-mail check. A forgotten password is reset with the recovery code shown at sign-up, so a rider who loses both the password and the code cannot get back in.
 - The AI reader has been spot-checked on a small set of screenshots. Its accuracy is now measured from rider corrections (admin overview and `GET /api/accuracy`), but no figure is published until riders have checked at least 100 values. Every import ends with a review step.
 - City analytics in the demo are simulated.
+- The Vultr copy and the Render copy are separate deployments. The Vultr one uses its own SQLite database and, with no AI key set, reads screenshots in the browser. Accounts created on one site do not exist on the other.
+- The Vultr address is an IP-based name (`<ip>.sslip.io`) with a certificate from Let's Encrypt. It changes if the server is rebuilt, until a domain is attached.
 - GPS, voice input and sharing from the phone gallery were tested in a desktop browser, not on a real phone.
 - The income statement is reported by the rider and protected against tampering. It is not certified by a platform or a bank. A lender should treat it like a salary slip the rider wrote, backed by screenshot hashes.
 - A payout that differs from the rider's order records is a prompt to ask the app, not proof of an error: orders may simply not have been imported.

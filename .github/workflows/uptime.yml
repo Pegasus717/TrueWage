@@ -1,6 +1,6 @@
 name: uptime
 # Every 10 minutes: ask the live site whether it and its database are up. If not, this run fails and GitHub emails the repository owner.
-# It also keeps a free Render instance awake. Set a repository variable TRUEWAGE_URL to override the address.
+# It checks both deployments (Vultr and Render) and also keeps the free Render instance awake.
 on:
   schedule:
     - cron: "*/10 * * * *"
@@ -9,10 +9,16 @@ jobs:
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        url:
+          - https://65-20-93-226.sslip.io
+          - https://truewage-0p3b.onrender.com
     steps:
       - name: Check readiness
         env:
-          URL: ${{ vars.TRUEWAGE_URL || 'https://truewage-0p3b.onrender.com' }}
+          URL: ${{ matrix.url }}
         run: |
           for i in 1 2 3 4; do
             code=$(curl -s -o body.json -w '%{http_code}' --max-time 60 "$URL/api/health/ready" || true)
